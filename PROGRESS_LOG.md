@@ -3,9 +3,43 @@
 Times are EST (America/New_York).
 
 ## Lessons learned (don't repeat these)
-- (none yet)
+- `workflow_dispatch` only works once the workflow file is on the default branch; with work kept off
+  main, the workflow runs on push to feat/** instead (log-only commits skip it via paths-ignore).
+- Adreno 750 (Qualcomm blob 1.3.128) does not set VK_QUEUE_TRANSFER_BIT on its graphics queue
+  (allowed by the spec); code that demands the bit finds "no suitable device".
+- Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
+  `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
-## 2026-11-10 — Steps 0–2 started (feat/android-build, in progress)
+## 2026-11-10 — ✅ Step 2 PASSED on the Pocket FIT (feat/android-build 9460d31f, device-proven headless)
+- **Device run 2 (18:41:39 EST, package 9460d31f, uid 10183 in u:r:untrusted_app_27:s0:c183,c256,c512,c768):**
+  SHA256SUMS ok. **xprobe 15/15 PASS**, run-test exit 0.
+  - vkprobe: 1 device, "Adreno (TM) 750", Vulkan 1.3.128, driver build 43c70540de (07/17/24);
+    queue family 0 = GRAPHICS|COMPUTE|SPARSE_BINDING|OPTICAL_FLOW_NV|PROTECTED (no TRANSFER bit →
+    confirms the run-1 cause; patch 0004 fixes it), family 1 COMPUTE, family 2 SPARSE_BINDING.
+    Extensions: AHB import yes, external_memory_fd yes, external_semaphore_fd yes, timeline yes;
+    dma_buf NO, image_drm_format_modifier NO, physical_device_drm NO.
+  - yserver: core Vulkan 1.3 on the Adreno blob; socket ready 230 ms; RSS 45.3 MB idle,
+    52.4 MB after the probe (peak 54.6 MB); 2,968 font names from /system/fonts (log line still says
+    "fontconfig"); input devices named "macOS keyboard/pointer" (portable backend defaults).
+  - 21 extensions offered: RANDR RENDER GE BIG-REQUESTS XINERAMA XKEYBOARD XInputExtension XFIXES
+    SHAPE SYNC DAMAGE Composite Present DPMS MIT-SCREEN-SAVER MIT-SHM XTEST X-Resource XC-MISC
+    VidMode (+1 cut off). Missing for Wine: DRI3, GLX (no DRM render node / dma-buf on Android).
+  - xprobe: connect 0.5 ms; window mapped + exposed 27 ms; fill + PutImage + MIT-SHM AttachFd
+    (v1.2) read back exactly; XKB 1.0; keymap 8..255, 677 keysyms; unknown core request → BadRequest
+    and the stream stays in step; OpenFont "fixed" opens; 10,000 round trips 173.4 ms = 17.3 µs
+    each; PutImage 572 MB/s; recorder 68 frames, last one matches.
+  - After: crash buffer empty, newest tombstone 12:09 (before the run), no yserver process left,
+    0 files not owned by uid 10183, yserver.log 0 error/panic lines, clean SIGTERM shutdown.
+- **Proof level:** device-proven for a headless yserver + test client inside Termux's app sandbox.
+  NOT tested: a real display, Wine, game frames (DRI3/AHB), touch/controller input, Bannerlator.
+- **Left on the device:** ~/yserver-test/{c8167005,9460d31f} in Termux's home (packages + outputs),
+  /sdcard/Download/yserver-android-spike-{c8167005,9460d31f}.tar.gz and
+  yserver-android-spike-step2.sh. Nothing installed, Bannerlator untouched.
+- **Open / next (user decides):** step 3 (Wine through yserver in a Bannerlator test build), the
+  AHB DRI3 path, an Android display host; the TRANSFER-bit check is an upstream yserver bug worth
+  reporting (author not contacted). Branch not merged.
+
+## 2026-11-10 — Steps 0–2 started (feat/android-build)
 - **Why:** user asked to test whether yserver (Rust X server, joske/yserver, MIT) can build and run
   on Android as a possible base for Bannerlator's X11 (and later Wayland) display. User approved a
   private repo and steps 0–2 on 2026-11-10 ~18:1x EST. Not contacting the author yet (user did not
