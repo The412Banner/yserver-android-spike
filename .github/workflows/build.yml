@@ -8,12 +8,15 @@ on:
         type: choice
         options: [build, check]
         default: build
+  push:
+    branches: ["feat/**", "fix/**"]
 
 env:
   RUST_TOOLCHAIN: "1.99.1"
   RUSTUP_TOOLCHAIN: "1.99.1"   # yserver's rust-toolchain.toml says "stable"; this pins it
   CARGO_TERM_COLOR: never
   CARGO_PROFILE_RELEASE_DEBUG: "false"
+  MODE: ${{ inputs.mode || 'build' }}
 
 jobs:
   android:
@@ -77,7 +80,7 @@ jobs:
           export RUSTFLAGS="-L native=$PWD/deps-out/lib"
           export RUST_FONTCONFIG_DLOPEN=1
           T=aarch64-linux-android
-          if [ "${{ inputs.mode }}" = check ]; then
+          if [ "$MODE" = check ]; then
             (cd yserver && cargo check --locked --release --keep-going --target $T -p yserver --bin yserver)
             (cd client && cargo check --locked --release --target $T)
           else
@@ -86,7 +89,7 @@ jobs:
           fi
 
       - name: Package
-        if: inputs.mode == 'build'
+        if: env.MODE == 'build'
         run: |
           mkdir -p pkg/xkb
           cp yserver/target/aarch64-linux-android/release/yserver pkg/
@@ -103,7 +106,7 @@ jobs:
           sha256sum "yserver-android-${GITHUB_SHA::8}.tar.gz"
 
       - uses: actions/upload-artifact@v4
-        if: inputs.mode == 'build'
+        if: env.MODE == 'build'
         with:
           name: yserver-android
           path: yserver-android-*.tar.gz
