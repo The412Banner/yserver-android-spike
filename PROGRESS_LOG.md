@@ -24,9 +24,13 @@ Times are EST (America/New_York).
     backend-private); SurfacePlatform on Android: DRI3 caps 1.2, import 1255 → AHB path.
   - Test client `ahbprobe`: allocate AHB (format 5 BGRA + 1 RGBA), fill, send like the wrapper,
     PixmapFromBuffers, ack read with timeout, CopyArea + PresentPixmap, GetImage compare, timings.
-- **Resume point:** scratch clone /tmp/claude-0/-root/<session>/scratchpad/ysrc/yserver has p1-p3
-  local commits + patch 0004 applied (uncommitted); if lost, re-clone at the pin and apply
-  patches/0001-0004, then rewrite 0005 from this design.
+- **Written + committed (no build yet):** `patches/0005-android-ahb-dri3.patch` (8 files, +439/-4;
+  all 5 patches apply in order to the pin, checked in a clean worktree) and `client/src/bin/ahbprobe.rs`
+  (compile-checked for aarch64-linux-android locally: clean). ahbprobe: DRI3 ≥ 1.2, AHB format 5
+  (BGRA) and 1 (RGBA) 256x256 → PixmapFromBuffers 1255 + ack timing → CopyArea read-back →
+  PresentPixmap + CompleteNotify + read-back → 300-present loop (avg/worst) → empty socket must be
+  acked + refused → server still answers. run-test.sh runs it after xprobe.
+- **Resume point:** push → CI on feat/android-build; then stage + run like step 2.
 
 ## 2026-11-10 — ✅ Step 2 PASSED on the Pocket FIT (feat/android-build 9460d31f, device-proven headless)
 - **Device run 2 (18:41:39 EST, package 9460d31f, uid 10183 in u:r:untrusted_app_27:s0:c183,c256,c512,c768):**
