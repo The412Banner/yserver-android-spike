@@ -46,7 +46,15 @@ Times are EST (America/New_York).
   variant (our Android stub). `yserver` 8,580,032 B stripped, `xprobe` 552,928 B; both NEED only
   libc/libm/libdl (+ libz for yserver). Artifact `yserver-android-c8167005.tar.gz` sha256
   `bd4d03014cbb9ef6e5d63a6864e3e12fefbf41bd7686b32eb26cca39ea6fb010`.
-- **Device test (step 2, Pocket FIT):** next — stage to /sdcard/Download/yserver-android-spike-c8167005.tar.gz
+- **Device run 1 (2026-11-10 18:35 EST, Pocket FIT, package c8167005, uid 10183 in
+  u:r:untrusted_app_27:s0:c183,c256,c512,c768):** SHA256SUMS ok; yserver STARTS on Android
+  (`startup — yserver 1.9.0`) but exits at once: `vulkan: no suitable physical device (need a
+  graphics + transfer queue)`. yserver requires the TRANSFER bit explicitly
+  (`yserver-render/src/kms/vk/device.rs:1705`); the Vulkan spec makes it optional for graphics /
+  compute queues. Not yet known whether Adreno omits it or the sandbox sees no device at all.
+  RUST_LOG=debug added nothing. Next build: patch 0004 (graphics/compute imply transfer) + `vkprobe`
+  (devices, queue flags, external-memory extensions), run first in run-test.sh.
+- **Device test (step 2, Pocket FIT):** planned as — stage to /sdcard/Download/yserver-android-spike-c8167005.tar.gz
   (hash host == device), unpack as uid 10183 in Termux's app context into
   ~/yserver-test/c8167005, check SHA256SUMS, run `sh run-test.sh` there. Nothing is installed; no
   app is started; Bannerlator untouched.
