@@ -1,0 +1,22 @@
+diff --git a/crates/yserver-render/src/kms/vk/device.rs b/crates/yserver-render/src/kms/vk/device.rs
+index 2e146a3..c0fc92f 100644
+--- a/crates/yserver-render/src/kms/vk/device.rs
++++ b/crates/yserver-render/src/kms/vk/device.rs
+@@ -1707,9 +1707,15 @@ fn pick_graphics_queue_family_from_properties(
+ ) -> Option<u32> {
+     let graphics_transfer = vk::QueueFlags::GRAPHICS | vk::QueueFlags::TRANSFER;
+     let preferred = graphics_transfer | vk::QueueFlags::COMPUTE;
+-    let find = |required| {
++    let find = |required: vk::QueueFlags| {
+         properties.iter().enumerate().find_map(|(index, family)| {
+-            (family.queue_count > 0 && family.queue_flags.contains(required))
++            // Graphics and compute queues accept transfer commands; reporting
++            // TRANSFER for them is optional (VkQueueFlagBits).
++            let mut flags = family.queue_flags;
++            if flags.intersects(vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE) {
++                flags |= vk::QueueFlags::TRANSFER;
++            }
++            (family.queue_count > 0 && flags.contains(required))
+                 .then(|| u32::try_from(index).expect("queue family index fits in u32"))
+         })
+     };

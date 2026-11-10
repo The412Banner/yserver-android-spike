@@ -96,6 +96,7 @@ jobs:
           cp yserver/target/aarch64-linux-android/release/yserver pkg/
           "$NDK_BIN/llvm-strip" pkg/yserver
           cp client/target/aarch64-linux-android/release/xprobe pkg/
+          cp client/target/aarch64-linux-android/release/vkprobe pkg/
           cp -r /usr/share/X11/xkb/. pkg/xkb/
           cp scripts/run-test.sh pkg/
           echo "yserver $(cat YSERVER_COMMIT), spike ${GITHUB_SHA}" > pkg/VERSION

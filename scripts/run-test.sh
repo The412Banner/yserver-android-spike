@@ -11,6 +11,10 @@ export RUST_LOG="${RUST_LOG:-info}"
 SOCK="$D/tmp/.X11-unix/X7"
 rm -f "$SOCK"
 
+"$D/vkprobe" >"$OUT/vkprobe.txt" 2>&1
+echo "vkprobe exit $?"
+cat "$OUT/vkprobe.txt"
+
 START=$(date +%s%N)
 "$D/yserver" :7 -nolisten tcp --headless --rootless --rootless-record "$OUT/rec" >"$OUT/yserver.log" 2>&1 &
 YS=$!
