@@ -54,6 +54,10 @@ Times are EST (America/New_York).
   compute queues. Not yet known whether Adreno omits it or the sandbox sees no device at all.
   RUST_LOG=debug added nothing. Next build: patch 0004 (graphics/compute imply transfer) + `vkprobe`
   (devices, queue flags, external-memory extensions), run first in run-test.sh.
+- **CI run 42924919473** (headSha 9460d31f): ✅ green; package `yserver-android-9460d31f.tar.gz`
+  sha256 `ce4b2cd844c97a3f051c771e0862165cf2ec6aa5b6f112b4ea2333f2c55ddfce`, staged
+  /sdcard/Download/yserver-android-spike-9460d31f.tar.gz (host == device). Device run 2 next:
+  `sh /sdcard/Download/yserver-android-spike-step2.sh 9460d31f` in the sandbox (same command as run 1).
 - **Device test (step 2, Pocket FIT):** planned as — stage to /sdcard/Download/yserver-android-spike-c8167005.tar.gz
   (hash host == device), unpack as uid 10183 in Termux's app context into
   ~/yserver-test/c8167005, check SHA256SUMS, run `sh run-test.sh` there. Nothing is installed; no
