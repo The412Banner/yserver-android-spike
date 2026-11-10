@@ -10,6 +10,7 @@ on:
         default: build
   push:
     branches: ["feat/**", "fix/**"]
+    paths-ignore: ["PROGRESS_LOG.md"]
 
 env:
   RUST_TOOLCHAIN: "1.99.1"
@@ -28,10 +29,11 @@ jobs:
       - name: Tools
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q ninja-build bison xkb-data
+          sudo apt-get install -y -q ninja-build bison xkb-data glslc
           pipx install "meson==1.6.1"
           meson --version
           bison --version | head -1
+          glslc --version | head -1
           dpkg-query -W xkb-data
 
       - name: NDK
