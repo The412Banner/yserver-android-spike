@@ -1,0 +1,110 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check = compile check only; build = binaries + test package"
+        type: choice
+        options: [build, check]
+        default: build
+
+env:
+  RUST_TOOLCHAIN: "1.99.1"
+  RUSTUP_TOOLCHAIN: "1.99.1"   # yserver's rust-toolchain.toml says "stable"; this pins it
+  CARGO_TERM_COLOR: never
+  CARGO_PROFILE_RELEASE_DEBUG: "false"
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ninja-build bison xkb-data
+          pipx install "meson==1.6.1"
+          meson --version
+          bison --version | head -1
+          dpkg-query -W xkb-data
+
+      - name: NDK
+        run: |
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_ROOT}}"
+          NDK_BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "$NDK_BIN/aarch64-linux-android26-clang"
+          grep Pkg.Revision "$NDK/source.properties"
+          echo "NDK_BIN=$NDK_BIN" >> "$GITHUB_ENV"
+
+      - name: Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target aarch64-linux-android
+          rustc -V
+          cargo -V
+
+      - name: yserver source (pinned) + patches
+        run: |
+          SHA=$(cat YSERVER_COMMIT)
+          git init -q yserver
+          git -C yserver fetch -q --depth 1 https://github.com/joske/yserver.git "$SHA"
+          git -C yserver checkout -q FETCH_HEAD
+          test "$(git -C yserver rev-parse HEAD)" = "$SHA"
+          for p in patches/*.patch; do git -C yserver apply --verbose "../$p"; done
+
+      - name: libxkbcommon (static, Android)
+        run: deps/build-xkbcommon.sh "$PWD/deps-out"
+
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            yserver/target
+            client/target
+          key: ys-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('YSERVER_COMMIT', 'patches/**', 'client/Cargo.lock') }}
+          restore-keys: ys-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Compile
+        run: |
+          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android26-clang"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android26-clang"
+          export RUSTFLAGS="-L native=$PWD/deps-out/lib"
+          export RUST_FONTCONFIG_DLOPEN=1
+          T=aarch64-linux-android
+          if [ "${{ inputs.mode }}" = check ]; then
+            (cd yserver && cargo check --locked --release --keep-going --target $T -p yserver --bin yserver)
+            (cd client && cargo check --locked --release --target $T)
+          else
+            (cd yserver && cargo build --locked --release --target $T -p yserver --bin yserver)
+            (cd client && cargo build --locked --release --target $T)
+          fi
+
+      - name: Package
+        if: inputs.mode == 'build'
+        run: |
+          mkdir -p pkg/xkb
+          cp yserver/target/aarch64-linux-android/release/yserver pkg/
+          "$NDK_BIN/llvm-strip" pkg/yserver
+          cp client/target/aarch64-linux-android/release/xprobe pkg/
+          cp -r /usr/share/X11/xkb/. pkg/xkb/
+          cp scripts/run-test.sh pkg/
+          echo "yserver $(cat YSERVER_COMMIT), spike ${GITHUB_SHA}" > pkg/VERSION
+          "$NDK_BIN/llvm-readelf" -d pkg/yserver | grep NEEDED
+          "$NDK_BIN/llvm-readelf" -d pkg/xprobe | grep NEEDED
+          ls -la pkg
+          (cd pkg && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          tar -C pkg -czf "yserver-android-${GITHUB_SHA::8}.tar.gz" .
+          sha256sum "yserver-android-${GITHUB_SHA::8}.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        if: inputs.mode == 'build'
+        with:
+          name: yserver-android
+          path: yserver-android-*.tar.gz
+          retention-days: 14
