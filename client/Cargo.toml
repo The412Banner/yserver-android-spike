@@ -6,7 +6,7 @@ publish = false
 license = "MIT"
 
 [dependencies]
-x11rb = { version = "0.14", features = ["shm", "xkb"] }
+x11rb = { version = "0.14", features = ["shm", "xkb", "dri3", "present"] }
 libc = "0.2"
 ash = "0.38"
 

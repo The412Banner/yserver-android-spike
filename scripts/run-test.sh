@@ -34,10 +34,14 @@ grep -E "VmRSS|VmHWM" /proc/$YS/status | sed 's/^/idle   /' | tee -a "$S"
 "$D/xprobe" --socket "$SOCK" --record-dir "$OUT/rec" >"$OUT/xprobe.txt" 2>&1
 RC=$?
 cat "$OUT/xprobe.txt"
+"$D/ahbprobe" --socket "$SOCK" >"$OUT/ahbprobe.txt" 2>&1
+RC2=$?
+cat "$OUT/ahbprobe.txt"
+[ $RC -eq 0 ] && RC=$RC2
 grep -E "VmRSS|VmHWM" /proc/$YS/status | sed 's/^/after  /' | tee -a "$S"
 if kill -0 $YS 2>/dev/null; then echo "yserver still running after the probe" | tee -a "$S"; else echo "yserver EXITED during the probe" | tee -a "$S"; fi
 kill $YS 2>/dev/null
 wait $YS 2>/dev/null
-echo "xprobe exit $RC; recorded files: $(ls "$OUT/rec" | wc -l); log: $OUT" | tee -a "$S"
+echo "xprobe+ahbprobe exit $RC (ahbprobe $RC2); recorded files: $(ls "$OUT/rec" | wc -l); log: $OUT" | tee -a "$S"
 grep -c -i -E "panic|error" "$OUT/yserver.log" | sed 's/^/yserver.log panic|error lines: /' | tee -a "$S"
 exit $RC

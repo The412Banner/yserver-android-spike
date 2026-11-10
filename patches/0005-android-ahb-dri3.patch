@@ -1,0 +1,572 @@
+diff --git a/crates/yserver-render/src/kms/render/gpu/storage_alloc.rs b/crates/yserver-render/src/kms/render/gpu/storage_alloc.rs
+index 52c5ec8..f1be253 100644
+--- a/crates/yserver-render/src/kms/render/gpu/storage_alloc.rs
++++ b/crates/yserver-render/src/kms/render/gpu/storage_alloc.rs
+@@ -39,7 +39,7 @@ impl GpuCore {
+                 b: vk::ComponentSwizzle::ZERO,
+                 a: vk::ComponentSwizzle::R,
+             },
+-            (vk::Format::B8G8R8A8_UNORM, 24) => vk::ComponentMapping {
++            (vk::Format::B8G8R8A8_UNORM | vk::Format::R8G8B8A8_UNORM, 24) => vk::ComponentMapping {
+                 r: vk::ComponentSwizzle::IDENTITY,
+                 g: vk::ComponentSwizzle::IDENTITY,
+                 b: vk::ComponentSwizzle::IDENTITY,
+diff --git a/crates/yserver-render/src/kms/vk/ahb.rs b/crates/yserver-render/src/kms/vk/ahb.rs
+new file mode 100644
+index 0000000..947666a
+--- /dev/null
++++ b/crates/yserver-render/src/kms/vk/ahb.rs
+@@ -0,0 +1,118 @@
++//! Android: a client hands a buffer over as an `AHardwareBuffer` through a
++//! socket fd (DRI3 `PixmapFromBuffers` with modifier 1255). The client sends
++//! the handle down a socketpair, passes the other end in the request, then
++//! blocks on a 1-byte read until the server writes one; the server receives
++//! the handle with `AHardwareBuffer_recvHandleFromUnixSocket` and imports it
++//! with `VK_ANDROID_external_memory_android_hardware_buffer`.
++
++use std::io;
++use std::os::fd::{AsRawFd, BorrowedFd};
++use std::ptr::NonNull;
++
++/// DRI3 modifier meaning "the fd is a socket carrying an AHardwareBuffer".
++pub const AHB_SOCKET_MODIFIER: u64 = 1255;
++
++/// `AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE`.
++pub const USAGE_GPU_SAMPLED_IMAGE: u64 = 1 << 8;
++/// `AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER` (`GPU_COLOR_OUTPUT`).
++pub const USAGE_GPU_FRAMEBUFFER: u64 = 1 << 9;
++
++/// How long the server waits for the handle once the request has arrived.
++const RECV_TIMEOUT_MS: libc::c_int = 1000;
++
++/// `AHardwareBuffer_Desc`.
++#[repr(C)]
++#[derive(Debug, Default, Clone, Copy)]
++pub struct AhbDesc {
++    pub width: u32,
++    pub height: u32,
++    pub layers: u32,
++    pub format: u32,
++    pub usage: u64,
++    pub stride: u32,
++    pub rfu0: u32,
++    pub rfu1: u64,
++}
++
++#[link(name = "nativewindow")]
++unsafe extern "C" {
++    fn AHardwareBuffer_recvHandleFromUnixSocket(
++        socket_fd: libc::c_int,
++        out_buffer: *mut *mut libc::c_void,
++    ) -> libc::c_int;
++    fn AHardwareBuffer_describe(buffer: *const libc::c_void, out_desc: *mut AhbDesc);
++    fn AHardwareBuffer_release(buffer: *mut libc::c_void);
++}
++
++/// One reference to an `AHardwareBuffer`, released on drop.
++pub struct Ahb(NonNull<libc::c_void>);
++
++// SAFETY: an AHardwareBuffer reference may be used and released from any thread.
++unsafe impl Send for Ahb {}
++
++impl Ahb {
++    #[must_use]
++    pub fn as_ptr(&self) -> *mut libc::c_void {
++        self.0.as_ptr()
++    }
++
++    #[must_use]
++    pub fn describe(&self) -> AhbDesc {
++        let mut desc = AhbDesc::default();
++        unsafe { AHardwareBuffer_describe(self.0.as_ptr(), &raw mut desc) };
++        desc
++    }
++}
++
++impl Drop for Ahb {
++    fn drop(&mut self) {
++        unsafe { AHardwareBuffer_release(self.0.as_ptr()) };
++    }
++}
++
++/// Write the one byte the client waits for. Never blocks.
++pub fn ack(socket: BorrowedFd<'_>) {
++    let byte = [1u8];
++    let _ = unsafe {
++        libc::send(
++            socket.as_raw_fd(),
++            byte.as_ptr().cast(),
++            1,
++            libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL,
++        )
++    };
++}
++
++/// Receive the buffer handle the client wrote into the socket. Waits at most
++/// `RECV_TIMEOUT_MS` so a client that never sends cannot stall the server.
++///
++/// # Errors
++///
++/// Timeout, a closed socket, or the NDK call failing.
++pub fn receive(socket: BorrowedFd<'_>) -> io::Result<Ahb> {
++    let mut pfd = libc::pollfd {
++        fd: socket.as_raw_fd(),
++        events: libc::POLLIN,
++        revents: 0,
++    };
++    let ready = unsafe { libc::poll(&raw mut pfd, 1, RECV_TIMEOUT_MS) };
++    if ready < 0 {
++        return Err(io::Error::last_os_error());
++    }
++    if ready == 0 {
++        return Err(io::Error::new(
++            io::ErrorKind::TimedOut,
++            "no AHardwareBuffer on the DRI3 socket",
++        ));
++    }
++    let mut out: *mut libc::c_void = std::ptr::null_mut();
++    let rc = unsafe { AHardwareBuffer_recvHandleFromUnixSocket(socket.as_raw_fd(), &raw mut out) };
++    if rc != 0 {
++        // The NDK returns 0 or a negative errno.
++        let errno = if rc < 0 { -rc } else { rc };
++        return Err(io::Error::from_raw_os_error(errno));
++    }
++    NonNull::new(out)
++        .map(Ahb)
++        .ok_or_else(|| io::Error::other("AHardwareBuffer_recvHandleFromUnixSocket gave no buffer"))
++}
+diff --git a/crates/yserver-render/src/kms/vk/device.rs b/crates/yserver-render/src/kms/vk/device.rs
+index c0fc92f..88d746e 100644
+--- a/crates/yserver-render/src/kms/vk/device.rs
++++ b/crates/yserver-render/src/kms/vk/device.rs
+@@ -226,6 +226,10 @@ pub struct VkContext {
+     /// `VK_QUEUE_FAMILY_EXTERNAL` sentinel is restricted to the same physical
+     /// device and driver UUID.
+     pub queue_family_foreign: bool,
++    /// Android: `VK_ANDROID_external_memory_android_hardware_buffer` loader,
++    /// `Some` when the extension is enabled (DRI3 AHardwareBuffer import).
++    #[cfg(target_os = "android")]
++    pub ahb: Option<ash::android::external_memory_android_hardware_buffer::Device>,
+     /// Whether `VK_EXT_memory_budget` is enabled. Diagnostic only:
+     /// gates whether `kms::vk::vram::sample` can report this
+     /// process's device-memory use, and nothing else.
+@@ -580,11 +584,24 @@ impl VkContext {
+             ash::ext::image_drm_format_modifier::NAME,
+             ash::ext::queue_family_foreign::NAME,
+         ];
+-        let wanted: &[&CStr] = if options.wants_kms_interop {
+-            kms_interop
++        #[allow(unused_mut)]
++        let mut wanted: Vec<&'static CStr> = if options.wants_kms_interop {
++            kms_interop.to_vec()
+         } else {
+-            &[]
++            Vec::new()
+         };
++        // Android: client buffers arrive as AHardwareBuffers (DRI3 modifier
++        // 1255); importing them needs this extension and its foreign-queue
++        // dependency.
++        #[cfg(target_os = "android")]
++        for ext in [
++            ash::android::external_memory_android_hardware_buffer::NAME,
++            ash::ext::queue_family_foreign::NAME,
++        ] {
++            if !wanted.contains(&ext) {
++                wanted.push(ext);
++            }
++        }
+         let supported_device_exts =
+             match unsafe { instance.enumerate_device_extension_properties(physical_device) } {
+                 Ok(v) => v,
+@@ -830,6 +847,12 @@ impl VkContext {
+         };
+         let queue_family_foreign =
+             device_extension_names.contains(&ash::ext::queue_family_foreign::NAME);
++        #[cfg(target_os = "android")]
++        let ahb = device_extension_names
++            .contains(&ash::android::external_memory_android_hardware_buffer::NAME)
++            .then(|| {
++                ash::android::external_memory_android_hardware_buffer::Device::new(&instance, &device)
++            });
+         // Publish the instance so the telemetry thread can sample
+         // device-memory use. Paired with the `vram::deregister()` in
+         // `Drop`, which must run before `destroy_instance`.
+@@ -871,6 +894,8 @@ impl VkContext {
+             image_drm_format_modifier_ext,
+             image_drm_format_modifier,
+             queue_family_foreign,
++            #[cfg(target_os = "android")]
++            ahb,
+             memory_budget,
+             tfp_tiling_strategy: std::sync::OnceLock::new(),
+             graphics_queue_family,
+diff --git a/crates/yserver-render/src/kms/vk/mod.rs b/crates/yserver-render/src/kms/vk/mod.rs
+index 2ce44fe..74d4cc2 100644
+--- a/crates/yserver-render/src/kms/vk/mod.rs
++++ b/crates/yserver-render/src/kms/vk/mod.rs
+@@ -7,6 +7,8 @@
+ //! parallel.
+ 
+ pub(crate) mod api_level;
++#[cfg(target_os = "android")]
++pub mod ahb;
+ pub mod call_stats;
+ pub mod compositor;
+ pub mod copy_scratch;
+diff --git a/crates/yserver-render/src/kms/vk/target.rs b/crates/yserver-render/src/kms/vk/target.rs
+index 853bd4e..a496052 100644
+--- a/crates/yserver-render/src/kms/vk/target.rs
++++ b/crates/yserver-render/src/kms/vk/target.rs
+@@ -209,6 +209,10 @@ pub enum ImageBacking {
+         dma_buf_fd: yserver_protocol::fd::OwnedFd,
+         vk_memory: vk::DeviceMemory,
+     },
++    /// Android: memory imported from a client AHardwareBuffer (DRI3
++    /// modifier 1255). The Vulkan import holds its own buffer reference.
++    #[cfg(target_os = "android")]
++    ImportedAhb { vk_memory: vk::DeviceMemory },
+ }
+ 
+ /// Errors during `DrawableImage` creation.
+@@ -623,6 +627,140 @@ impl DrawableImage {
+         })
+     }
+ 
++    /// Android: wrap a client `AHardwareBuffer` (DRI3 modifier 1255) as an
++    /// image the compositor samples. The format is whatever the driver says
++    /// the buffer is; a buffer only usable through an external format
++    /// (YUV and the like) is refused.
++    ///
++    /// # Errors
++    ///
++    /// The extension is missing, the buffer cannot be sampled, or a Vulkan
++    /// call fails.
++    #[cfg(target_os = "android")]
++    pub fn from_ahb(
++        vk: Arc<VkContext>,
++        buffer: &super::ahb::Ahb,
++        width: u32,
++        height: u32,
++        stride_bytes: u32,
++    ) -> Result<Self, DrawableImageError> {
++        let ext = vk.ahb.as_ref().ok_or(DrawableImageError::MissingExtension(
++            "VK_ANDROID_external_memory_android_hardware_buffer",
++        ))?;
++        let desc = buffer.describe();
++        if desc.usage & super::ahb::USAGE_GPU_SAMPLED_IMAGE == 0 {
++            return Err(DrawableImageError::Vk(vk::Result::ERROR_FORMAT_NOT_SUPPORTED));
++        }
++        let mut format_props = vk::AndroidHardwareBufferFormatPropertiesANDROID::default();
++        let mut props =
++            vk::AndroidHardwareBufferPropertiesANDROID::default().push_next(&mut format_props);
++        unsafe {
++            ext.get_android_hardware_buffer_properties(buffer.as_ptr().cast_const(), &mut props)?;
++        }
++        let allocation_size = props.allocation_size;
++        let memory_type_bits = props.memory_type_bits;
++        let format = format_props.format;
++        if format == vk::Format::UNDEFINED {
++            return Err(DrawableImageError::Vk(vk::Result::ERROR_FORMAT_NOT_SUPPORTED));
++        }
++        let mut usage = vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_SRC;
++        if desc.usage & super::ahb::USAGE_GPU_FRAMEBUFFER != 0 {
++            usage |= vk::ImageUsageFlags::COLOR_ATTACHMENT;
++        }
++        let mut external_info = vk::ExternalMemoryImageCreateInfo::default()
++            .handle_types(vk::ExternalMemoryHandleTypeFlags::ANDROID_HARDWARE_BUFFER_ANDROID);
++        let image_info = vk::ImageCreateInfo::default()
++            .image_type(vk::ImageType::TYPE_2D)
++            .format(format)
++            .extent(vk::Extent3D {
++                width,
++                height,
++                depth: 1,
++            })
++            .mip_levels(1)
++            .array_layers(1)
++            .samples(vk::SampleCountFlags::TYPE_1)
++            .tiling(vk::ImageTiling::OPTIMAL)
++            .usage(usage)
++            .sharing_mode(vk::SharingMode::EXCLUSIVE)
++            .initial_layout(vk::ImageLayout::UNDEFINED)
++            .push_next(&mut external_info);
++        let image = unsafe { vk.device.create_image(&image_info, None)? };
++
++        let mem_props = unsafe {
++            vk.instance
++                .get_physical_device_memory_properties(vk.physical_device)
++        };
++        let Some(memory_type_index) =
++            pick_memory_type(&mem_props, memory_type_bits, vk::MemoryPropertyFlags::empty())
++        else {
++            unsafe { vk.device.destroy_image(image, None) };
++            return Err(DrawableImageError::NoMemoryType);
++        };
++        let mut import =
++            vk::ImportAndroidHardwareBufferInfoANDROID::default().buffer(buffer.as_ptr());
++        let mut dedicated = vk::MemoryDedicatedAllocateInfo::default().image(image);
++        let alloc_info = vk::MemoryAllocateInfo::default()
++            .allocation_size(allocation_size)
++            .memory_type_index(memory_type_index)
++            .push_next(&mut import)
++            .push_next(&mut dedicated);
++        let memory = match crate::kms::vk::mem_accounting::allocate_memory(
++            &vk.device,
++            &alloc_info,
++            crate::kms::vk::mem_accounting::MemCategory::Dri3Import,
++            &mem_props,
++        ) {
++            Ok(m) => m,
++            Err(e) => {
++                unsafe { vk.device.destroy_image(image, None) };
++                return Err(e.into());
++            }
++        };
++        if let Err(e) = unsafe { vk.device.bind_image_memory(image, memory, 0) } {
++            unsafe {
++                crate::kms::vk::mem_accounting::free_memory(&vk.device, memory);
++                vk.device.destroy_image(image, None);
++            }
++            return Err(e.into());
++        }
++        let view_info = vk::ImageViewCreateInfo::default()
++            .image(image)
++            .view_type(vk::ImageViewType::TYPE_2D)
++            .format(format)
++            .subresource_range(
++                vk::ImageSubresourceRange::default()
++                    .aspect_mask(vk::ImageAspectFlags::COLOR)
++                    .level_count(1)
++                    .layer_count(1),
++            );
++        let view = match unsafe { vk.device.create_image_view(&view_info, None) } {
++            Ok(v) => v,
++            Err(e) => {
++                unsafe {
++                    crate::kms::vk::mem_accounting::free_memory(&vk.device, memory);
++                    vk.device.destroy_image(image, None);
++                }
++                return Err(e.into());
++            }
++        };
++        Ok(Self {
++            vk_image: image,
++            vk_image_view: view,
++            mask_view: None,
++            no_alpha_src_view: None,
++            extent: vk::Extent2D { width, height },
++            format,
++            backing: ImageBacking::ImportedAhb { vk_memory: memory },
++            drm_modifier: Some(super::ahb::AHB_SOCKET_MODIFIER),
++            import_size: None,
++            import_plane0: Some((stride_bytes, 0)),
++            damage: MirrorDamage::default(),
++            current_layout: vk::ImageLayout::UNDEFINED,
++            vk,
++        })
++    }
++
+     fn new_server_owned(
+         vk: Arc<VkContext>,
+         width: u32,
+@@ -743,6 +881,8 @@ impl DrawableImage {
+         match &self.backing {
+             ImageBacking::ServerOwned { vk_memory } => *vk_memory,
+             ImageBacking::Imported { vk_memory, .. } => *vk_memory,
++            #[cfg(target_os = "android")]
++            ImageBacking::ImportedAhb { vk_memory } => *vk_memory,
+         }
+     }
+ 
+@@ -757,6 +897,8 @@ impl DrawableImage {
+         match &self.backing {
+             ImageBacking::Imported { dma_buf_fd, .. } => Some(dma_buf_fd.as_fd()),
+             ImageBacking::ServerOwned { .. } => None,
++            #[cfg(target_os = "android")]
++            ImageBacking::ImportedAhb { .. } => None,
+         }
+     }
+ 
+@@ -1209,6 +1351,10 @@ impl Drop for DrawableImage {
+                 | ImageBacking::Imported { vk_memory, .. } => {
+                     crate::kms::vk::mem_accounting::free_memory(&self.vk.device, *vk_memory);
+                 }
++                #[cfg(target_os = "android")]
++                ImageBacking::ImportedAhb { vk_memory } => {
++                    crate::kms::vk::mem_accounting::free_memory(&self.vk.device, *vk_memory);
++                }
+             }
+         }
+         // dma-buf OwnedFd in Imported variant drops automatically.
+diff --git a/crates/yserver/src/kms/render/backend.rs b/crates/yserver/src/kms/render/backend.rs
+index fd6dfec..e27c982 100644
+--- a/crates/yserver/src/kms/render/backend.rs
++++ b/crates/yserver/src/kms/render/backend.rs
+@@ -25,6 +25,8 @@ mod kms;
+ pub use kms::state::KmsBackend;
+ #[cfg(kms)]
+ pub(crate) use kms::state::*;
++#[cfg(target_os = "android")]
++mod android_ahb;
+ mod portable;
+ pub(crate) mod seam;
+ mod trait_impl;
+diff --git a/crates/yserver/src/kms/render/backend/android_ahb.rs b/crates/yserver/src/kms/render/backend/android_ahb.rs
+new file mode 100644
+index 0000000..efbc83f
+--- /dev/null
++++ b/crates/yserver/src/kms/render/backend/android_ahb.rs
+@@ -0,0 +1,121 @@
++//! Android DRI3: clients hand frames over as AHardwareBuffers through a
++//! socket fd (`PixmapFromBuffers` with modifier 1255, see
++//! `crate::kms::vk::ahb`). Android apps cannot open a DRM render node, so
++//! this is the only DRI3 import on Android.
++
++use std::io;
++use std::os::fd::AsFd as _;
++
++use yserver_core::backend::{Dri3Caps, Dri3ImportModifier, PixmapHandle};
++
++use super::XBackend;
++use super::seam::Platform;
++use crate::kms::render::store::{DrawableKind, ImportedDmabufMetadata, ImportedDmabufPlane, Storage};
++use crate::kms::vk::ahb;
++
++impl<P: Platform> XBackend<P> {
++    /// DRI3 1.2 (`PixmapFromBuffers`) when the AHardwareBuffer import is
++    /// available; no modifiers, fences or syncobjs.
++    pub(crate) fn android_dri3_capabilities(&self) -> Dri3Caps {
++        match self.platform.gpu().vk.as_ref() {
++            Some(vk) if vk.ahb.is_some() => Dri3Caps {
++                version: (1, 2),
++                modifiers: false,
++                fence_fd: false,
++                syncobj: false,
++            },
++            _ => Dri3Caps::unsupported(),
++        }
++    }
++
++    #[allow(clippy::too_many_arguments)]
++    pub(crate) fn android_dri3_import_pixmap(
++        &mut self,
++        fd: yserver_core::fd::OwnedFd,
++        width: u16,
++        height: u16,
++        stride: u32,
++        _offset: u32,
++        modifier: Dri3ImportModifier,
++        depth: u8,
++        bpp: u8,
++    ) -> io::Result<PixmapHandle> {
++        if modifier != Dri3ImportModifier::Explicit(ahb::AHB_SOCKET_MODIFIER) {
++            return Err(io::Error::other(format!(
++                "DRI3 import on Android takes only modifier {} (AHardwareBuffer socket), got {modifier:?}",
++                ahb::AHB_SOCKET_MODIFIER
++            )));
++        }
++        // First, whatever happens next: the client blocks until this byte arrives.
++        ahb::ack(fd.as_fd());
++        if !matches!((depth, bpp), (24 | 32, 32)) {
++            return Err(io::Error::other(format!(
++                "DRI3 AHardwareBuffer import: unsupported depth {depth} bpp {bpp}"
++            )));
++        }
++        let Some(vk) = self.platform.gpu().vk.clone() else {
++            return Err(io::Error::other("DRI3 import: Vulkan unavailable"));
++        };
++        let buffer = ahb::receive(fd.as_fd())?;
++        let desc = buffer.describe();
++        if desc.width < u32::from(width) || desc.height < u32::from(height) {
++            return Err(io::Error::other(format!(
++                "DRI3 AHardwareBuffer {}x{} is smaller than the pixmap {width}x{height}",
++                desc.width, desc.height
++            )));
++        }
++        let drawable = crate::kms::vk::target::DrawableImage::from_ahb(
++            vk.clone(),
++            &buffer,
++            u32::from(width),
++            u32::from(height),
++            stride,
++        )
++        .map_err(|e| io::Error::other(format!("DRI3 AHardwareBuffer import: {e:?}")))?;
++        // The Vulkan memory holds its own reference from here on.
++        drop(buffer);
++        let vk_format = drawable.format;
++        let sample_view = crate::kms::render::gpu::GpuCore::build_sample_view(
++            &vk,
++            drawable.vk_image,
++            vk_format,
++            depth,
++        )
++        .map_err(|e| io::Error::other(format!("DRI3 AHardwareBuffer sample view: {e:?}")))?;
++        let fourcc = if depth == 32 {
++            u32::from_le_bytes(*b"AR24")
++        } else {
++            u32::from_le_bytes(*b"XR24")
++        };
++        let storage = Storage::from_imported_drawable_image(
++            drawable,
++            sample_view,
++            depth,
++            ImportedDmabufMetadata {
++                fourcc,
++                vk_format,
++                modifier: ahb::AHB_SOCKET_MODIFIER,
++                implicit_layout: false,
++                planes: vec![ImportedDmabufPlane {
++                    offset: 0,
++                    pitch: stride,
++                }],
++                width,
++                height,
++                depth,
++                bpp,
++            },
++        );
++        let host_xid = self.core.next_host_xid();
++        self.store_alloc(host_xid, DrawableKind::Pixmap, depth, false, storage)
++            .map_err(|e| io::Error::other(format!("DRI3 import store.allocate: {e:?}")))?;
++        self.telemetry.record_storage_allocation();
++        self.telemetry.record_image_view_create();
++        log::info!(
++            "dri3: AHardwareBuffer {}x{} format {} usage 0x{:x} stride {} -> {vk_format:?} pixmap {width}x{height} (host 0x{host_xid:x})",
++            desc.width, desc.height, desc.format, desc.usage, desc.stride
++        );
++        PixmapHandle::from_raw(host_xid)
++            .ok_or_else(|| io::Error::other("DRI3 import: failed to make PixmapHandle"))
++    }
++}
+diff --git a/crates/yserver/src/surface/platform.rs b/crates/yserver/src/surface/platform.rs
+index db9cbbe..8043ab3 100644
+--- a/crates/yserver/src/surface/platform.rs
++++ b/crates/yserver/src/surface/platform.rs
+@@ -906,6 +906,27 @@ fn record_general_image_read(
+ impl Platform for SurfacePlatform {
+     type BackendState = SurfaceBackendState;
+ 
++    #[cfg(target_os = "android")]
++    fn dri3_capabilities(b: &XBackend<Self>) -> yserver_core::backend::Dri3Caps {
++        b.android_dri3_capabilities()
++    }
++
++    #[cfg(target_os = "android")]
++    #[allow(clippy::too_many_arguments)]
++    fn dri3_import_pixmap(
++        b: &mut XBackend<Self>,
++        fd: yserver_core::fd::OwnedFd,
++        width: u16,
++        height: u16,
++        stride: u32,
++        offset: u32,
++        modifier: yserver_core::backend::Dri3ImportModifier,
++        depth: u8,
++        bpp: u8,
++    ) -> io::Result<yserver_core::backend::PixmapHandle> {
++        b.android_dri3_import_pixmap(fd, width, height, stride, offset, modifier, depth, bpp)
++    }
++
+     fn fb_size(&self) -> (u16, u16) {
+         self.fb_size
+     }
