@@ -25,7 +25,11 @@ Times are EST (America/New_York).
   fill + PutImage read-back, MIT-SHM AttachFd read-back, XKB UseExtension, keymap, unknown core
   request (must error and keep the stream in step), OpenFont "fixed" (must not kill the server),
   10,000 round trips, PutImage MB/s, recorded frame matches. `cargo check` on the host: clean.
-- **CI run:** (next)
+- **CI run 42923030484** (headSha ebe716ef, push): FAILED at Compile — patch applied, libxkbcommon
+  1.13.2 static built; `yserver-render` build script needs `glslc` (shader compiler) on PATH.
+  Fix: `glslc` added to the runner packages (next run). Sandbox check for step 2: as uid 10183 with
+  `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` the shell runs in Termux's real app context
+  and reads /sdcard/Download.
 - **Device test:** not started.
 - **Resume point:** repo /root/src/yserver-android-spike; dispatch `build` (mode check first) on
   feat/android-build; assert headSha.
