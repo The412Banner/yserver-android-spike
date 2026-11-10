@@ -10,6 +10,24 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-10 — Android buffer (AHB) DRI3 path (feat/android-build, IN PROGRESS, nothing built yet)
+- **Why:** user 2026-11-10 ~18:45 EST: "do the android buffer path next". Game frames from the guest
+  Vulkan wrapper arrive as DRI3 1.2 PixmapFromBuffers with modifier 1255 and a socket fd carrying
+  an AHardwareBuffer (leegao/bionic-vulkan-wrapper `src/vulkan/wsi/wsi_common_x11.c` ~1924-1966;
+  the client blocks on a 1-byte read until the server writes one, so the server must always ack).
+- **Design (patch 0005, being written in the scratch clone, not committed):**
+  - yserver-render `kms/vk/ahb.rs` (Android): libnativewindow FFI (recvHandleFromUnixSocket,
+    describe, release), ack byte first, import via VK_ANDROID_external_memory_android_hardware_buffer
+    (dedicated alloc + ImportAndroidHardwareBufferInfo); `ImageBacking::ImportedAhb`;
+    device.rs enables the AHB ext + queue_family_foreign on Android, `VkContext.ahb`.
+  - yserver `kms/render/backend/android_ahb.rs`: generic `backend_import_ahb_pixmap` (store_alloc is
+    backend-private); SurfacePlatform on Android: DRI3 caps 1.2, import 1255 → AHB path.
+  - Test client `ahbprobe`: allocate AHB (format 5 BGRA + 1 RGBA), fill, send like the wrapper,
+    PixmapFromBuffers, ack read with timeout, CopyArea + PresentPixmap, GetImage compare, timings.
+- **Resume point:** scratch clone /tmp/claude-0/-root/<session>/scratchpad/ysrc/yserver has p1-p3
+  local commits + patch 0004 applied (uncommitted); if lost, re-clone at the pin and apply
+  patches/0001-0004, then rewrite 0005 from this design.
+
 ## 2026-11-10 — ✅ Step 2 PASSED on the Pocket FIT (feat/android-build 9460d31f, device-proven headless)
 - **Device run 2 (18:41:39 EST, package 9460d31f, uid 10183 in u:r:untrusted_app_27:s0:c183,c256,c512,c768):**
   SHA256SUMS ok. **xprobe 15/15 PASS**, run-test exit 0.
