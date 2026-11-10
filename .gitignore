@@ -1,0 +1,5 @@
+target/
+/yserver/
+/deps-out/
+/pkg/
+*.tar.gz
