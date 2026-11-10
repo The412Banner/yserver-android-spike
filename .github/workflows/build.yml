@@ -80,7 +80,6 @@ jobs:
           export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android26-clang"
           export RUSTFLAGS="-L native=$PWD/deps-out/lib"
-          export RUST_FONTCONFIG_DLOPEN=1
           T=aarch64-linux-android
           if [ "$MODE" = check ]; then
             (cd yserver && cargo check --locked --release --keep-going --target $T -p yserver --bin yserver)

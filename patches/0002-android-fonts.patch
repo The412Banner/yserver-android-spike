@@ -1,0 +1,123 @@
+diff --git a/crates/yserver/Cargo.toml b/crates/yserver/Cargo.toml
+index 7f56fe8..2a2f3b6 100644
+--- a/crates/yserver/Cargo.toml
++++ b/crates/yserver/Cargo.toml
+@@ -45,7 +45,7 @@ yserver-render = { workspace = true, features = ["test-support"] }
+ nix.workspace = true
+ 
+ # Windows finds its fonts by scanning the font directories (`kms/font_scan.rs`).
+-[target.'cfg(not(windows))'.dependencies]
++[target.'cfg(not(any(windows, target_os = "android")))'.dependencies]
+ fontconfig = "0.11"
+ 
+ [target.'cfg(target_os = "android")'.dependencies]
+diff --git a/crates/yserver/src/kms/core.rs b/crates/yserver/src/kms/core.rs
+index 757ebf3..4b9cca9 100644
+--- a/crates/yserver/src/kms/core.rs
++++ b/crates/yserver/src/kms/core.rs
+@@ -635,9 +635,9 @@ pub(crate) fn embedded_font(name: &str) -> Option<&'static EmbeddedFont> {
+ 
+ pub(crate) struct FontLoader {
+     pub(crate) library: freetype::Library,
+-    #[cfg(not(windows))]
++    #[cfg(not(any(windows, target_os = "android")))]
+     pub(crate) fc: fontconfig::Fontconfig,
+-    #[cfg(windows)]
++    #[cfg(any(windows, target_os = "android"))]
+     pub(crate) fc: super::font_scan::FontScan,
+     pub(crate) catalog: FontTable<()>,
+     /// `XORG_BUILTIN_NAMES`, lowered for matching.
+@@ -725,10 +725,10 @@ pub(crate) const BUILTIN_ALIASES: &[&str] = &["fixed", "cursor", "nil2"];
+ 
+ impl FontLoader {
+     pub(crate) fn new() -> io::Result<Self> {
+-        #[cfg(not(windows))]
++        #[cfg(not(any(windows, target_os = "android")))]
+         let fc = fontconfig::Fontconfig::new()
+             .ok_or_else(|| io::Error::other("fontconfig init failed"))?;
+-        #[cfg(windows)]
++        #[cfg(any(windows, target_os = "android"))]
+         let fc = super::font_scan::FontScan::new()
+             .ok_or_else(|| io::Error::other("font scan init failed"))?;
+         let catalog = build_font_catalog(&fc);
+@@ -1376,7 +1376,7 @@ impl FontLoader {
+ 
+     /// The file and face index fontconfig matches for `query_family`
+     /// (chained with `monospace`) in `style`.
+-    #[cfg(not(windows))]
++    #[cfg(not(any(windows, target_os = "android")))]
+     fn match_builtin_file(
+         &self,
+         name: &str,
+@@ -1413,7 +1413,7 @@ impl FontLoader {
+         Ok((path.to_string(), face_index))
+     }
+ 
+-    #[cfg(windows)]
++    #[cfg(any(windows, target_os = "android"))]
+     fn match_builtin_file(
+         &self,
+         name: &str,
+@@ -2089,7 +2089,7 @@ pub(crate) fn sanitize_xlfd_field(s: &str) -> String {
+ /// gb2312*, ksc*) need real fonts on disk to satisfy properly; rather
+ /// than stub them, we let libXt warn "Missing charset X" and proceed
+ /// with the iso* coverage that's guaranteed real.
+-#[cfg(not(windows))]
++#[cfg(not(any(windows, target_os = "android")))]
+ pub(crate) fn build_font_catalog(fc: &fontconfig::Fontconfig) -> Vec<String> {
+     // `fixed`, `cursor` and the rest of Xorg's own built-ins are listed
+     // from `XORG_BUILTIN_NAMES`, ahead of these.
+@@ -2131,7 +2131,7 @@ pub(crate) fn build_font_catalog(fc: &fontconfig::Fontconfig) -> Vec<String> {
+ }
+ 
+ /// [`build_font_catalog`] over the faces a directory scan found.
+-#[cfg(windows)]
++#[cfg(any(windows, target_os = "android"))]
+ pub(crate) fn build_font_catalog(fc: &super::font_scan::FontScan) -> Vec<String> {
+     let mut catalog = CatalogBuilder::default();
+     for f in fc.faces() {
+diff --git a/crates/yserver/src/kms/font_scan.rs b/crates/yserver/src/kms/font_scan.rs
+index c8debbe..b995e11 100644
+--- a/crates/yserver/src/kms/font_scan.rs
++++ b/crates/yserver/src/kms/font_scan.rs
+@@ -12,7 +12,10 @@ const FC_PROPORTIONAL: i32 = 0;
+ const FC_MONO: i32 = 100;
+ 
+ /// What fontconfig's `monospace` resolves to here, in preference order.
++#[cfg(windows)]
+ const MONOSPACE: &[&str] = &["Consolas", "Cascadia Mono", "Lucida Console", "Courier New"];
++#[cfg(target_os = "android")]
++const MONOSPACE: &[&str] = &["Droid Sans Mono", "Cutive Mono"];
+ 
+ pub(crate) struct ScannedFace {
+     pub(crate) path: PathBuf,
+@@ -76,6 +79,16 @@ impl FontScan {
+     }
+ }
+ 
++#[cfg(target_os = "android")]
++fn font_dirs() -> Vec<PathBuf> {
++    // YSERVER_FONT_DIRS: colon-separated; default = the system fonts.
++    match std::env::var_os("YSERVER_FONT_DIRS") {
++        Some(v) => std::env::split_paths(&v).collect(),
++        None => vec![PathBuf::from("/system/fonts")],
++    }
++}
++
++#[cfg(windows)]
+ fn font_dirs() -> Vec<PathBuf> {
+     let mut dirs = Vec::new();
+     let windir =
+diff --git a/crates/yserver/src/kms/mod.rs b/crates/yserver/src/kms/mod.rs
+index 5f61fe4..e097a8b 100644
+--- a/crates/yserver/src/kms/mod.rs
++++ b/crates/yserver/src/kms/mod.rs
+@@ -10,7 +10,7 @@ pub(crate) type ConsoleGuardOpt = Option<console::ConsoleGuard>;
+ #[cfg(kms)]
+ pub(crate) mod cursor_plane;
+ pub(crate) mod font_index;
+-#[cfg(windows)]
++#[cfg(any(windows, target_os = "android"))]
+ pub(crate) mod font_scan;
+ #[cfg(kms)]
+ pub(crate) mod hotplug;
