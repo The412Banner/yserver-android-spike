@@ -40,6 +40,18 @@ Times are EST (America/New_York).
   `c_int` on Android vs `c_ulong` on glibc (`kms/vk/dri3.rs:588`, `:765`). Patch 0003: Android uses
   the Linux constants that already cast to `libc::Ioctl`. All three patches apply in order to the pin
   (checked in a clean worktree).
-- **Device test:** not started.
+- **CI run 42923932269** (headSha c8167005, push): ✅ GREEN — STEP 1 PASSED. Full build from an
+  empty cache (329 crates, yserver release in 1m40s; NDK 27.3.13750724, Rust 1.99.1, meson 1.6.1,
+  glslc 2023.8, xkb-data 2.41-2ubuntu1.1, libxkbcommon.a 600,242 B). Only warning: unused `Sysv`
+  variant (our Android stub). `yserver` 8,580,032 B stripped, `xprobe` 552,928 B; both NEED only
+  libc/libm/libdl (+ libz for yserver). Artifact `yserver-android-c8167005.tar.gz` sha256
+  `bd4d03014cbb9ef6e5d63a6864e3e12fefbf41bd7686b32eb26cca39ea6fb010`.
+- **Device test (step 2, Pocket FIT):** next — stage to /sdcard/Download/yserver-android-spike-c8167005.tar.gz
+  (hash host == device), unpack as uid 10183 in Termux's app context into
+  ~/yserver-test/c8167005, check SHA256SUMS, run `sh run-test.sh` there. Nothing is installed; no
+  app is started; Bannerlator untouched.
+- **Resume point:** if the session dies: re-run the stage/unpack/run commands above as
+  `rootsh "su -g 10183 -G 3003 -G 9997 -G 20183 -G 50183 10183 -c 'runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768 /system/bin/sh -c \"...\"'"`;
+  results land in ~/yserver-test/c8167005/out-*/ (summary.txt, xprobe.txt, yserver.log, rec/).
 - **Resume point:** repo /root/src/yserver-android-spike; dispatch `build` (mode check first) on
   feat/android-build; assert headSha.
