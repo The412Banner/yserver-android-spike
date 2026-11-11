@@ -15,6 +15,12 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:5x — ✅ "do all three" result: HUD + black desktop DEVICE-PROVEN (BL 89e78d6a + yserver de999f09)
+- speed12 (no extra env): 2131.62 / 539.75; screenshot: Fusion HUD 2218.8 fps, 0.5 ms (AIO 2176) — was 144.0 / 6.9 ms; desktop black, no wallpaper/taskbar. 0 FATAL, crash 0.
+- Slow frames: remaining once-a-second spikes = flush_paint ~3.5-4 ms (the cube's per-second title/label repaint) + poll_retired ~2 ms (driver); lazy present copy ≤ +12 % on the cube's 1 % low (speed10) — offered, not built.
+- Open: merge BL feat/yserver-hud-desktop (CI 43047598280 green, device-proven) — user's go. yserver patches 0020-0023 live in this repo (feat/android-build); binary hand-installed in BL files/yserver.
+- Fan restored, Termux in front, peers told.
+
 ## 2026-11-11 10:50 — BL 89e78d6a INSTALLED (user: "yes install it and run the test"); launch checkpoint
 - base.apk fe110cd2 == staged, installed 10:49:54 EST, yserver de999f09 kept, crash buffer empty. Restore APK: /sdcard/Download/Bannerlator-xserver-console-log-4e8c7e65-pubg.apk (main code).
 - Launch checkpoint: speed12 = AIO vk ys 30 s, NO extra env (BL sets YSERVER_HIDE_CLASS for the shortcut; HUD should show the game's fps), fan max.
