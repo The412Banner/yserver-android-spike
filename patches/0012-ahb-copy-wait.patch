@@ -1,0 +1,29 @@
+diff --git a/crates/yserver/src/rootless/ahb.rs b/crates/yserver/src/rootless/ahb.rs
+index ee28394..05efc56 100644
+--- a/crates/yserver/src/rootless/ahb.rs
++++ b/crates/yserver/src/rootless/ahb.rs
+@@ -24,6 +24,9 @@ use crate::kms::{
+ /// Buffers per window: one shown, one queued in the compositor, one filling.
+ const POOL: usize = 3;
+ 
++/// How long the core thread waits for a copy before leaving it to the poll.
++const COPY_WAIT_NS: u64 = 4_000_000;
++
+ const USAGE: u64 = ahb::USAGE_GPU_SAMPLED_IMAGE
+     | ahb::USAGE_GPU_FRAMEBUFFER
+     | ahb::USAGE_COMPOSER_OVERLAY
+@@ -217,7 +220,13 @@ impl AhbState {
+             ticket,
+         });
+         moved = true;
+-        // A small copy has often finished by now.
++        // The copy is short (a blit of the window): wait for it here, up to a
++        // few ms, so the buffer reaches the compositor in this refresh rather
++        // than at the next 1 ms poll. A longer wait (the GPU busy with a game)
++        // falls back to the poll.
++        let fence = [self.in_flight.as_ref().expect("set above").ticket.fence()];
++        // SAFETY: a fence of this device, submitted above.
++        let _ = unsafe { vk.device.wait_for_fences(&fence, true, COPY_WAIT_NS) };
+         self.hand_over(id, depth, host, t.vk);
+         moved
+     }
