@@ -15,6 +15,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:1x — user "do all three" (1 remaining slow frames, 2 HUD real fps on yserver, 3 hide Wine desktop on yserver)
+- 3: BL hides explorer.exe for shortcut launches: X11 GLRenderer.setUnviewableWMClasses("explorer.exe") (XServerDisplayActivity ~12790), Wayland compositor nativeSetHideShell(true); on yserver the compositor gets one combined desktop surface, so explorer's pixels are already in it → plan: yserver drops drawing into windows whose WM_CLASS matches YSERVER_HIDE_CLASS (set by BL for shortcuts) and paints their background black.
+- 1: reclaim_gpu's per-second max is likely the render_telemetry emit itself (reclaim_retired_gpu_work calls telemetry.maybe_emit) → check with YSERVER_TICK_TIMING=1 alone.
+- Launch checkpoint: speed8 = AIO vk ys 30 s YSERVER_TICK_TIMING=1 only, fan max (fan-max.sh; restore after the block).
+
 ## 2026-11-11 10:0x — ✅ speed step 1 DONE: patch 0020 (+ debug 0021), device-proven on the Pocket FIT
 - Installed in BL files/yserver: ff704741 (= 0020 + 0021; staged /sdcard/Download/yserver-android-0021-95cd7778). Old 4e229a33 = /sdcard/Download/yserver-android-FINAL-4e229a33.
 - AIO Vulkan cube on yserver (30 s): before 2071 avg / 304 1% low (with telemetry; 2120 / 323 without) → after 2163-2194 / 581-591 (no telemetry 2194/591, 2128/585). Same binary with YSERVER_PUTIMAGE_CLIP_CPU=1 YSERVER_COPY_WAIT_US=4000: 2118 / 329. X11 ref 2165 / 828; Wayland ref 2776.
