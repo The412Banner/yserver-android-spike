@@ -15,6 +15,10 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:0x — renice: no effect; launch checkpoint speed6 (no telemetry)
+- speed5 (all yserver threads nice -10 by root): 2129.79 / 505.59, rootless_tick max ~3.5 ms, reclaim_gpu ~2.35 ms, iter_wall_max ~3.7 ms → not preemption. The spikes come once per second = likely the per-second telemetry emit itself (render_telemetry/vram/pixmap-pool/loop lines only exist with YSERVER_LOOP_TELEMETRY; a normal run logs ~69 lines total).
+- Launch checkpoint: speed6 = AIO vk ys 30 s, no env (normal config) on ff704741.
+
 ## 2026-11-11 10:0x — tick timing result; renice experiment checkpoint
 - speed4 (0021 ff704741, fan max): avg 2162.39 / 1% 582.99. Per second: rootless_tick max 3.4-3.5 ms (sum ~36 ms), reclaim_gpu max 2.3 ms (sum ~28 ms), rest < 0.05 ms. VRAM churn alloc=0/s free=0/s, get_image_calls/s=0 → spikes are not extra work (avg 13-17 us per step); suspect preemption by the game's threads (yserver runs at nice 0; BL's compositor thread runs at nice -10).
 - Launch checkpoint: speed5 = AIO vk ys 30 s with all yserver threads reniced to -10 by root (perf-harness/ys-renice.sh) during the run.
