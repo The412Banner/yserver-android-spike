@@ -1,0 +1,53 @@
+diff --git a/crates/yserver/src/rootless/record.rs b/crates/yserver/src/rootless/record.rs
+index 9ae3a6a..34ceef0 100644
+--- a/crates/yserver/src/rootless/record.rs
++++ b/crates/yserver/src/rootless/record.rs
+@@ -25,6 +25,20 @@ pub(crate) struct RecordHost {
+     /// The X window and border of each live id, for the frame lines.
+     windows: HashMap<ToplevelId, u32>,
+     borders: HashMap<ToplevelId, u16>,
++    /// Pixel files are written for every `every`-th frame of a window, at
++    /// most `max` in all (`YSERVER_RECORD_EVERY` / `YSERVER_RECORD_MAX`);
++    /// frames.log still gets a line for every frame.
++    every: u64,
++    max: u64,
++    written: u64,
++}
++
++fn env_u64(name: &str, default: u64) -> u64 {
++    std::env::var(name)
++        .ok()
++        .and_then(|v| v.parse().ok())
++        .filter(|&v| v > 0)
++        .unwrap_or(default)
+ }
+ 
+ impl RecordHost {
+@@ -51,6 +65,9 @@ impl RecordHost {
+             frames,
+             windows: HashMap::new(),
+             borders: HashMap::new(),
++            every: env_u64("YSERVER_RECORD_EVERY", 1),
++            max: env_u64("YSERVER_RECORD_MAX", u64::MAX),
++            written: 0,
+         })
+     }
+ 
+@@ -67,8 +84,15 @@ impl RecordHost {
+         let (Some(dir), Some(frames)) = (&self.dir, self.frames.as_mut()) else {
+             return Ok(());
+         };
+-        let file = format!("{}-{}.bgra", frame.id.get(), frame.seq.0);
+-        fs::write(dir.join(&file), &frame.pixels)?;
++        let keep = frame.seq.0 % self.every == 0 && self.written < self.max;
++        let file = if keep {
++            let file = format!("{}-{}.bgra", frame.id.get(), frame.seq.0);
++            fs::write(dir.join(&file), &frame.pixels)?;
++            self.written += 1;
++            file
++        } else {
++            "-".to_string()
++        };
+         let window = self.windows.get(&frame.id).copied().unwrap_or(0);
+         let bw = self.borders.get(&frame.id).copied().unwrap_or(0);
+         writeln!(
