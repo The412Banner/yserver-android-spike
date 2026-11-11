@@ -3,6 +3,8 @@
 Times are EST (America/New_York).
 
 ## Lessons learned (don't repeat these)
+- (BL repo) the pre-launch checkpoint helper ran `git commit -am` in the BL worktree and swept unfinished Java edits into a
+  "PROGRESS_LOG: launch checkpoint" commit (aa1cb3e9 = the live FPS-limiter code). Commit only PROGRESS_LOG.md in helpers.
 - The local tree has files that earlier patches CREATE (e.g. 0005's ahb.rs). If they stay untracked, `git diff`
   for the next patch misses edits to them (0009 CI 42949396814 failed). Commit them locally first, and check a
   fresh `031ec58d + merge PR349 + all patches` tree equals the local tree before pushing.
@@ -12,6 +14,12 @@ Times are EST (America/New_York).
   (allowed by the spec); code that demands the bit finds "no suitable device".
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
+
+## 2026-11-11 00:2x EST — frame cap works; zero-copy layer works; GTA IV 40 vs 66 → FIFO target_msc rounding (0017)
+- **Frame cap (0016 + BL 77f321d6, limiter 60):** AIO cube avg 60.01 fps, 16.67 ms ± 1.39 ms, worst 22.96 ms; uncapped 2004 fps.
+- **Zero-copy layer (BANNER_WAYLAND_ZERO_COPY=1):** compositor shows yserver's AHB pool on a display layer ("978 zero-copy frames, copy 0"); DiRT 117.0 fps (GPU-bound, same as copy path 116.8).
+- **GTA IV benchmark:** ys 40.1 / wl 65.4 / x11 66.1 (0 FATAL). Not the compositor copy (zero-copy 40.8), not present-wait (41.6), not async on/off (41.0); yserver 1 % busy, each present done in ~1 ms, GPU 37 % → the game waits. Cause: Mesa FIFO sends explicit target_msc = last+1; yserver honoured them on its 144 Hz clock (async override only covered target 0), so a ~15 ms frame rounds up to 3–4 slots (~24 ms). The Java X server ignores target_msc → 66.
+- **0017:** immediate mode (YSERVER_PRESENT_ASYNC=1, no cap) ignores target_msc/divisor like the Java server; frame cap live through `YSERVER_FPS_FILE` (yserver-core `frame_cap`, polled every 200 ms; Present clock + one-MSC-per-present follow it; async off while capped). BL: applyFpsLimit → YServerComponent.setFrameCapLive (writes imagefs/usr/tmp/.yserver-fps); compositor limiter not used in yserver mode.
 
 ## 2026-11-10 23:47 EST — ✅ DiRT Showdown on yserver: 116.8 fps (= X11 114.3 / Wayland 113–117), activation fixed
 - Window activation chain (BL): YSERVER-MAP (0014/0015) → winHandler.bringToFront(class, hwnd) (+1 s); explorer.exe / conhost.exe never raised; when one maps (Wine activates the console window itself ~9 s into DiRT), the last game window is raised again after 0.3 s and 1.3 s (BL d948577f). Proof p4a: game 108–113 fps until conhost mapped at 23:22:36 → 16; p4c with re-raise: **av 116.8, min 85.5**, 0 FATAL, no hands.
