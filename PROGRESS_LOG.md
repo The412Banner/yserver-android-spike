@@ -15,6 +15,10 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:50 — BL 89e78d6a INSTALLED (user: "yes install it and run the test"); launch checkpoint
+- base.apk fe110cd2 == staged, installed 10:49:54 EST, yserver de999f09 kept, crash buffer empty. Restore APK: /sdcard/Download/Bannerlator-xserver-console-log-4e8c7e65-pubg.apk (main code).
+- Launch checkpoint: speed12 = AIO vk ys 30 s, NO extra env (BL sets YSERVER_HIDE_CLASS for the shortcut; HUD should show the game's fps), fan max.
+
 ## 2026-11-11 11:0x — speed11: black desktop CONFIRMED (0023 de999f09); block closed
 - speed11 (YSERVER_HIDE_CLASS=explorer.exe): 2194.22 / 588.64; screenshot: wallpaper + taskbar gone, area black like X11 mode; window frame, cube, HUD fine. 0 FATAL, crash 0.
 - HUD part needs BL 89e78d6a installed (staged, user's yes pending). Fan restored, Termux in front, peers told.
