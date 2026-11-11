@@ -1,0 +1,114 @@
+--- a/crates/yserver-render/src/kms/vk/ahb.rs	2026-11-10 21:59:11.927997222 -0500
++++ b/crates/yserver-render/src/kms/vk/ahb.rs	2026-11-10 21:59:11.935997222 -0500
+@@ -16,6 +16,12 @@
+ pub const USAGE_GPU_SAMPLED_IMAGE: u64 = 1 << 8;
+ /// `AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER` (`GPU_COLOR_OUTPUT`).
+ pub const USAGE_GPU_FRAMEBUFFER: u64 = 1 << 9;
++/// `AHARDWAREBUFFER_USAGE_CPU_READ_RARELY`: keeps gralloc from compressing (linear layout).
++pub const USAGE_CPU_READ_RARELY: u64 = 2;
++/// `AHARDWAREBUFFER_USAGE_COMPOSER_OVERLAY`.
++pub const USAGE_COMPOSER_OVERLAY: u64 = 1 << 11;
++/// `HAL_PIXEL_FORMAT_BGRA_8888` (B, G, R, A in memory; `DRM_FORMAT_ARGB8888`).
++pub const FORMAT_B8G8R8A8: u32 = 5;
+ 
+ /// How long the server waits for the handle once the request has arrived.
+ const RECV_TIMEOUT_MS: libc::c_int = 1000;
+@@ -42,6 +48,58 @@
+     ) -> libc::c_int;
+     fn AHardwareBuffer_describe(buffer: *const libc::c_void, out_desc: *mut AhbDesc);
+     fn AHardwareBuffer_release(buffer: *mut libc::c_void);
++    fn AHardwareBuffer_allocate(desc: *const AhbDesc, out_buffer: *mut *mut libc::c_void) -> libc::c_int;
++    fn AHardwareBuffer_sendHandleToUnixSocket(
++        buffer: *const libc::c_void,
++        socket_fd: libc::c_int,
++    ) -> libc::c_int;
++}
++
++/// `native_handle_t`'s head; `data` holds `num_fds` fds then `num_ints` ints.
++#[repr(C)]
++struct NativeHandle {
++    version: libc::c_int,
++    num_fds: libc::c_int,
++    num_ints: libc::c_int,
++    data: [libc::c_int; 0],
++}
++
++type GetNativeHandle = unsafe extern "C" fn(*const libc::c_void) -> *const NativeHandle;
++
++/// `AHardwareBuffer_getNativeHandle` (LL-NDK, not in the NDK stubs): looked up once.
++fn get_native_handle() -> Option<GetNativeHandle> {
++    static SYM: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
++    let addr = *SYM.get_or_init(|| unsafe {
++        let lib = libc::dlopen(c"libnativewindow.so".as_ptr(), libc::RTLD_NOW);
++        let lib = if lib.is_null() { libc::RTLD_DEFAULT } else { lib };
++        libc::dlsym(lib, c"AHardwareBuffer_getNativeHandle".as_ptr()) as usize
++    });
++    (addr != 0).then(|| unsafe { std::mem::transmute::<usize, GetNativeHandle>(addr) })
++}
++
++/// Allocate a buffer.
++///
++/// # Errors
++///
++/// gralloc refused the description.
++pub fn allocate(width: u32, height: u32, format: u32, usage: u64) -> io::Result<Ahb> {
++    let desc = AhbDesc {
++        width,
++        height,
++        layers: 1,
++        format,
++        usage,
++        ..AhbDesc::default()
++    };
++    let mut out: *mut libc::c_void = std::ptr::null_mut();
++    let rc = unsafe { AHardwareBuffer_allocate(&raw const desc, &raw mut out) };
++    if rc != 0 {
++        let errno = if rc < 0 { -rc } else { rc };
++        return Err(io::Error::from_raw_os_error(errno));
++    }
++    NonNull::new(out)
++        .map(Ahb)
++        .ok_or_else(|| io::Error::other("AHardwareBuffer_allocate gave no buffer"))
+ }
+ 
+ /// One reference to an `AHardwareBuffer`, released on drop.
+@@ -62,6 +120,39 @@
+         unsafe { AHardwareBuffer_describe(self.0.as_ptr(), &raw mut desc) };
+         desc
+     }
++
++    /// Write the handle into a Unix socket (the peer reads it with
++    /// `AHardwareBuffer_recvHandleFromUnixSocket`).
++    ///
++    /// # Errors
++    ///
++    /// The NDK call failed.
++    pub fn send_to_socket(&self, socket: BorrowedFd<'_>) -> io::Result<()> {
++        let rc = unsafe { AHardwareBuffer_sendHandleToUnixSocket(self.0.as_ptr(), socket.as_raw_fd()) };
++        if rc != 0 {
++            let errno = if rc < 0 { -rc } else { rc };
++            return Err(io::Error::from_raw_os_error(errno));
++        }
++        Ok(())
++    }
++
++    /// The buffer's first fd (gralloc's dma-buf), owned by the buffer.
++    #[must_use]
++    pub fn dmabuf_fd(&self) -> Option<BorrowedFd<'_>> {
++        let get = get_native_handle()?;
++        let handle = unsafe { get(self.0.as_ptr()) };
++        if handle.is_null() {
++            return None;
++        }
++        // SAFETY: a native_handle_t the buffer owns, alive as long as `self`.
++        unsafe {
++            if (*handle).num_fds < 1 {
++                return None;
++            }
++            let fd = *(*handle).data.as_ptr();
++            (fd >= 0).then(|| BorrowedFd::borrow_raw(fd))
++        }
++    }
+ }
+ 
+ impl Drop for Ahb {
