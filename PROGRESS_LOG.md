@@ -13,6 +13,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-10 23:47 EST — ✅ DiRT Showdown on yserver: 116.8 fps (= X11 114.3 / Wayland 113–117), activation fixed
+- Window activation chain (BL): YSERVER-MAP (0014/0015) → winHandler.bringToFront(class, hwnd) (+1 s); explorer.exe / conhost.exe never raised; when one maps (Wine activates the console window itself ~9 s into DiRT), the last game window is raised again after 0.3 s and 1.3 s (BL d948577f). Proof p4a: game 108–113 fps until conhost mapped at 23:22:36 → 16; p4c with re-raise: **av 116.8, min 85.5**, 0 FATAL, no hands.
+- Note: the X11 (Java) path has the same console-steals-activation behaviour (DesktopHelper raises every app window) → its 16-fps runs tonight; pre-existing, not touched.
+- 0016 (frame cap) + BL FPS limiter → YSERVER_PRESENT_HZ wiring pushed (CI).
+
 ## 2026-11-10 23:1x EST — blit fixes the Present cost; DiRT "16 fps" = inactive window (user found it); 0014/0015
 - **0013 YSERVER_COPY_BLIT=1 on device (be806b03):** PresentPixmap 1.84 ms → ~0.1 ms (op145 416/s in 41.8 ms; core 7.5 % busy); cube 407 fps synced, HUD 142 fps on screen (full 144 Hz). With YSERVER_PRESENT_ASYNC=1 too: **2093 fps** (X11 Java 2062, Wayland 2677).
 - **DiRT Showdown benchmark (800x600 windowed):** x11 114.3 / wl 113.1 at 22:2x, then ys AND later x11 runs at 16 fps with GPU 10 %. Traced: yserver handles each Present in ~3 ms, the game waits ~65 ms between them. **User (23:0x): "every time we ran yserver with the game windowed it was 16 FPS with no sound until I maximized the window during the last two runs"** → the game throttles + mutes while its window is inactive; maximizing activated it: x11 105.7, ys 92.3 (ys run still on the vkCmdCopyImage path). Wayland mode activates via the compositor's bring-to-front; X11 mode via DesktopHelper on map; yserver mode had nothing.
