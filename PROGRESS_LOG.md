@@ -15,6 +15,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:5x — speed9 result; 0023 building; skip-copy retest checkpoint
+- speed9 (0022 f9dda551, YSERVER_TICK_TIMING=1 YSERVER_HIDE_CLASS=explorer.exe, fan max): 2179.86 / 595.48. YSERVER-FPS lines 2166-2216 (= AIO). Wallpaper + taskbar gone, but the desktop area was the root's GRAY (new window storage seeded from the parent, portable/windows.rs ~2066) → 0023 (3035e16): hidden windows paint black on every exposure.
+- Spikes located: rl.flush_paint (flush_before_damage_exposure → engine.flush_render_batch) max 3.4-4.2 ms; reclaim.poll_retired max ~1.9 ms. No blocking fence waits in the hot path (FenceTicket::wait only shutdown/readback) → Adreno driver submit/status calls under ~2200 present-copy submits/s.
+- Idea: copy only the newest presented frame per display refresh (lazy present copy, ~144/s instead of ~2200/s). Retest the upper bound now: speed10 = AIO vk ys 30 s YSERVER_DEBUG_SKIP_PRESENT_COPY=1 YSERVER_TICK_TIMING=1 (fan max).
+
 ## 2026-11-11 10:4x — 0022 + BL hud/desktop GREEN; yserver f9dda551 installed; launch checkpoint
 - yserver CI 43047259660 green; f9dda551 staged /sdcard/Download/yserver-android-0022-3149f72d, installed in BL files/yserver. BL CI 43047598280 green (4/4) — APK to stage, install needs the user's yes.
 - Launch checkpoint: speed9 = AIO vk ys 30 s with YSERVER_TICK_TIMING=1 YSERVER_HIDE_CLASS=explorer.exe (desktop black? YSERVER-FPS lines? sub-step maxima), fan max.
