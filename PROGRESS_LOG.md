@@ -15,6 +15,9 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 13:1x — 0029 green; launch checkpoint
+- CI 43064600562 green; staged /sdcard/Download/yserver-android-0029-77446386. Runs: speed25 cube 30 s (HUD = game fps?), GTA IV + DiRT (speedg6) on 0029; if all good it stays installed.
+
 ## 2026-11-11 13:0x — ✅ newest frame only WORKS (0028); HUD count fix 0029
 - speed22 (0028, 10 s, debug): 2013.63 / 513.88 with heavy logging; 20062 presents, 18582 superseded (93 %), 1352 executed (~1 per host frame).
 - speed23 (0028 on, 30 s): 2050.75 / 578.69, HUD GPU 24 %; speed24 (YSERVER_PRESENT_LATEST=0): 2170.29 / 569.33 (GPU ~30 % in earlier screenshots) → same fps/lows within spread, less GPU work.
