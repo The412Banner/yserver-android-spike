@@ -15,6 +15,8 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 11:5x — 0025 REGRESSION: cube 428 fps with newest-frame-only on (off: 2039.73 / 560.61); present_skips/s=0 → parked presents run in turn per MSC, never superseded. Diagnostic run (RUST_LOG present_pace=debug, 10 s), then restore yserver 0023 de999f09.
+
 ## 2026-11-11 11:4x — 0025 GREEN + installed; launch checkpoint
 - CI 43055600802 green; yserver staged /sdcard/Download/yserver-android-0025-19fb1260, installed.
 - Launch checkpoint: speed15 = cube ys 30 s (0025 on, telemetry for present_skips), speed16 = YSERVER_PRESENT_LATEST=0, then GTA IV + DiRT on 0025 (speedg5). Fan max for the block.
