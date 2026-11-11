@@ -15,6 +15,9 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 12:5x — 0028 green; launch checkpoint
+- CI 43063175060 green; staged /sdcard/Download/yserver-android-0028-d22b46b7. speed22 = cube 10 s present_pace=debug; if supersession works: speed23/24 cube 30 s on/off, GTA IV + DiRT. Restore 0023 after.
+
 ## 2026-11-11 12:4x — speed19 (0027): parks now, but the drain re-check runs them at once → patch 0028
 - speed19 (0027, 10 s, present_pace=debug): 459.46 fps; 4593 parked_msc, but 4275 exec_due trigger=drain in the same ms as parked_msc (clock still eff-1): the due filter (~922) and drain_ready_present_pixmaps (~1557) re-classify with the plain flip_in_flight → ExecuteNow. Only 318 superseded (successor arrived before the drain).
 - 0028: helper latest_parks(pending) ORed into all three classifications (arrival, due filter, drain).
