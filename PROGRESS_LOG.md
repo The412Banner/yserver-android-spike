@@ -28,7 +28,14 @@ Times are EST (America/New_York).
   `RecordedCopyArea.dst_format`; `emit_converting_copy_area` = same barriers with the BLIT stage +
   1:1 `cmd_blit_image` (NEAREST). AHB images already have TRANSFER_SRC usage, OPTIMAL tiling; blit
   src/dst are mandatory format features for both formats. All 6 patches apply to the pin (clean worktree).
-- **Next:** CI → stage → device run 4 (expect ahbprobe 10/10) → step 3 (Wine via a BL test build) — not started.
+- **CI run 42930497153** (headSha 5a52496e): ✅ green.
+- **Patch 0007 (record cap, for step 3):** `YSERVER_RECORD_EVERY` (keep every Nth frame per window) and
+  `YSERVER_RECORD_MAX` (total pixel files); frames.log still lists every frame (`file=-` when skipped).
+  Defaults unchanged (every frame, no cap). A game at 60 fps would otherwise write ~200 MB/s.
+- **Step 3 STARTED:** Bannerlator branch feat/yserver-spike 4903bdb7 (`BANNER_YSERVER=1` → BL runs
+  files/yserver/yserver instead of the Java X server, headless + record every 30th frame, max 40).
+- **Next:** CI → stage → device run 4 (expect ahbprobe 10/10) → stage yserver into BL's files/yserver
+  (owner = BL uid, BL's SELinux label) → ask the user before installing the BL test build.
 
 ## 2026-11-10 — Android buffer (AHB) DRI3 path (feat/android-build, IN PROGRESS, nothing built yet)
 - **Why:** user 2026-11-10 ~18:45 EST: "do the android buffer path next". Game frames from the guest
