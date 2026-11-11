@@ -30,6 +30,9 @@ Times are EST (America/New_York).
   (BGRA) and 1 (RGBA) 256x256 → PixmapFromBuffers 1255 + ack timing → CopyArea read-back →
   PresentPixmap + CompleteNotify + read-back → 300-present loop (avg/worst) → empty socket must be
   acked + refused → server still answers. run-test.sh runs it after xprobe.
+- **CI run 42927479742** (headSha 368efd01): FAILED at Compile — yserver-render (all the AHB Vulkan
+  code) compiled clean; yserver crate: `unresolved import crate::kms::vk::ahb` (the crate re-exports
+  yserver-render's vk modules by name, `crates/yserver/src/kms/vk/mod.rs`). Fixed in patch 0005.
 - **Resume point:** push → CI on feat/android-build; then stage + run like step 2.
 
 ## 2026-11-10 — ✅ Step 2 PASSED on the Pocket FIT (feat/android-build 9460d31f, device-proven headless)
