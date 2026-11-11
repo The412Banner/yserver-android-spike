@@ -103,6 +103,7 @@ jobs:
         run: |
           mkdir -p pkg/xkb
           cp yserver/target/aarch64-linux-android/release/yserver pkg/
+          mkdir -p sym && cp pkg/yserver sym/yserver.unstripped
           "$NDK_BIN/llvm-strip" pkg/yserver
           cp client/target/aarch64-linux-android/release/xprobe pkg/
           cp client/target/aarch64-linux-android/release/vkprobe pkg/
@@ -123,3 +124,10 @@ jobs:
           name: yserver-android
           path: yserver-android-*.tar.gz
           retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        if: env.MODE == 'build'
+        with:
+          name: yserver-android-symbols
+          path: sym/yserver.unstripped
+          retention-days: 7
