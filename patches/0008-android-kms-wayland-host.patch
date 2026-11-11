@@ -1,0 +1,168 @@
+diff --git a/crates/yserver/Cargo.toml b/crates/yserver/Cargo.toml
+index 171830c..dd7765b 100644
+--- a/crates/yserver/Cargo.toml
++++ b/crates/yserver/Cargo.toml
+@@ -52,13 +52,15 @@ fontconfig = "0.11"
+ freetype-sys = { version = "0.23", features = ["bundled"] }
+ 
+ # The DRM/KMS platform; build.rs emits `cfg(kms)` for the same targets.
+-[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
++[target.'cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
+ drm.workspace = true
+ gbm.workspace = true
+ input.workspace = true
+ 
+ [target.'cfg(target_os = "linux")'.dependencies]
+ udev.workspace = true
++
++[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+ # The rootless Wayland host (`src/wayland/`), behind feature `wayland`:
+ # wayland-client on its own Rust implementation of the wire (not the
+ # `system` libwayland one), and the protocols beyond the core it speaks.
+diff --git a/crates/yserver/build.rs b/crates/yserver/build.rs
+index f3a16f0..c9fc65d 100644
+--- a/crates/yserver/build.rs
++++ b/crates/yserver/build.rs
+@@ -16,12 +16,12 @@ fn main() {
+     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+     let os = target_os.as_str();
+     // `cfg(kms)`: the DRM/KMS platform (and its libinput/VT stack) builds.
+-    emit_cfg("kms", matches!(os, "linux" | "freebsd" | "openbsd"));
++    emit_cfg("kms", matches!(os, "linux" | "android" | "freebsd" | "openbsd"));
+     // The readiness API the platform's loops wait on.
+-    emit_cfg("epoll", os == "linux");
++    emit_cfg("epoll", matches!(os, "linux" | "android"));
+     emit_cfg("kqueue", matches!(os, "freebsd" | "openbsd" | "macos"));
+     // `eventfd(2)`, which DRM syncobj notification needs.
+-    emit_cfg("eventfd", matches!(os, "linux" | "freebsd"));
++    emit_cfg("eventfd", matches!(os, "linux" | "android" | "freebsd"));
+     // `cfg(tcp_transport)`: TCP can be listened on. The feature everywhere,
+     // and always on Windows, where TCP is the only transport.
+     emit_cfg(
+@@ -32,7 +32,7 @@ fn main() {
+     // builds: the feature, on Linux, where its dependencies are.
+     emit_cfg(
+         "wayland_host",
+-        env::var_os("CARGO_FEATURE_WAYLAND").is_some() && os == "linux",
++        env::var_os("CARGO_FEATURE_WAYLAND").is_some() && matches!(os, "linux" | "android"),
+     );
+     // The `xkbcommon` crate links `-lxkbcommon` without a search path, and
+     // neither Homebrew's lib dir (macOS) nor vcpkg's (Windows) is on the
+diff --git a/crates/yserver/src/drm/page_flip.rs b/crates/yserver/src/drm/page_flip.rs
+index 712a331..5e82707 100644
+--- a/crates/yserver/src/drm/page_flip.rs
++++ b/crates/yserver/src/drm/page_flip.rs
+@@ -25,9 +25,9 @@ use crate::drm::{
+     },
+ };
+ 
+-#[cfg(target_os = "linux")]
++#[cfg(any(target_os = "linux", target_os = "android"))]
+ pub(crate) type IoctlReq = libc::Ioctl;
+-#[cfg(not(target_os = "linux"))]
++#[cfg(not(any(target_os = "linux", target_os = "android")))]
+ pub(crate) type IoctlReq = libc::c_ulong;
+ 
+ // ── DRM_IOCTL_CRTC_QUEUE_SEQUENCE plumbing ──────────────────────
+diff --git a/crates/yserver/src/kms/console.rs b/crates/yserver/src/kms/console.rs
+index 06daadc..7827f7e 100644
+--- a/crates/yserver/src/kms/console.rs
++++ b/crates/yserver/src/kms/console.rs
+@@ -33,7 +33,7 @@ use nix::sys::termios::{
+ #[cfg(target_os = "freebsd")]
+ #[path = "console/freebsd.rs"]
+ mod os;
+-#[cfg(target_os = "linux")]
++#[cfg(any(target_os = "linux", target_os = "android"))]
+ #[path = "console/linux.rs"]
+ mod os;
+ #[cfg(target_os = "openbsd")]
+diff --git a/crates/yserver/src/kms/console/linux.rs b/crates/yserver/src/kms/console/linux.rs
+index 196ac1d..69319ea 100644
+--- a/crates/yserver/src/kms/console/linux.rs
++++ b/crates/yserver/src/kms/console/linux.rs
+@@ -5,7 +5,10 @@ use std::io;
+ #[cfg(target_env = "musl")]
+ pub(super) type IoctlReq = libc::c_int;
+ #[cfg(not(target_env = "musl"))]
++#[cfg(not(target_os = "android"))]
+ pub(super) type IoctlReq = libc::c_ulong;
++#[cfg(target_os = "android")]
++pub(super) type IoctlReq = libc::c_int;
+ 
+ pub(super) const VT_ACTIVATE: IoctlReq = 0x5606;
+ pub(super) const VT_SETMODE: IoctlReq = 0x5602;
+diff --git a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
+index cc773de..239f7c5 100644
+--- a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
++++ b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
+@@ -799,6 +799,10 @@ impl Platform for PlatformBackend {
+     }
+ 
+     fn dri3_capabilities(b: &KmsBackend) -> Dri3Caps {
++        // Android: no DRM render node for dma-bufs; DRI3 takes AHardwareBuffers (patch 0005).
++        #[cfg(target_os = "android")]
++        return b.android_dri3_capabilities();
++        #[cfg(not(target_os = "android"))]
+         KmsBackend::backend_export_dri3_capabilities(b)
+     }
+ 
+@@ -813,6 +817,9 @@ impl Platform for PlatformBackend {
+         depth: u8,
+         bpp: u8,
+     ) -> io::Result<PixmapHandle> {
++        #[cfg(target_os = "android")]
++        return b.android_dri3_import_pixmap(fd, width, height, stride, offset, modifier, depth, bpp);
++        #[cfg(not(target_os = "android"))]
+         KmsBackend::backend_export_dri3_import_pixmap(
+             b, fd, width, height, stride, offset, modifier, depth, bpp,
+         )
+@@ -824,6 +831,12 @@ impl Platform for PlatformBackend {
+         depth: u8,
+         bpp: u8,
+     ) -> (Vec<u64>, Vec<u64>) {
++        #[cfg(target_os = "android")]
++        {
++            let _ = (b, window, depth, bpp);
++            return (Vec::new(), Vec::new());
++        }
++        #[cfg(not(target_os = "android"))]
+         KmsBackend::backend_export_dri3_supported_modifiers(b, window, depth, bpp)
+     }
+ 
+diff --git a/crates/yserver/src/kms/render/imported_syncobj.rs b/crates/yserver/src/kms/render/imported_syncobj.rs
+index 6dab974..9570b3c 100644
+--- a/crates/yserver/src/kms/render/imported_syncobj.rs
++++ b/crates/yserver/src/kms/render/imported_syncobj.rs
+@@ -33,7 +33,7 @@ pub(crate) trait PresentSyncobj: yserver_core::backend::SyncobjHandle {
+     fn signaled_eventfd(&self, value: u64) -> std::io::Result<OwnedFd>;
+ }
+ 
+-#[cfg(all(target_os = "linux", target_env = "musl"))]
++#[cfg(any(all(target_os = "linux", target_env = "musl"), target_os = "android"))]
+ type SyncobjIoctlReq = libc::c_int;
+ #[cfg(any(
+     all(target_os = "linux", not(target_env = "musl")),
+diff --git a/crates/yserver/src/lib.rs b/crates/yserver/src/lib.rs
+index 7534cee..4b7fa50 100644
+--- a/crates/yserver/src/lib.rs
++++ b/crates/yserver/src/lib.rs
+@@ -913,14 +913,16 @@ pub fn run(opts: launch::LaunchOptions) -> io::Result<()> {
+         log::info!("yserver: rootless, on the Wayland compositor");
+     }
+ 
+-    let socket_dir = PathBuf::from("/tmp/.X11-unix");
++    // YSERVER_TMPDIR: where .X11-unix and the lock live (Android has no /tmp).
++    let tmp_root = std::env::var_os("YSERVER_TMPDIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
++    let socket_dir = tmp_root.join(".X11-unix");
+     fs::create_dir_all(&socket_dir).map_err(|e| {
+         io::Error::new(
+             e.kind(),
+             format!("create_dir_all({}): {e}", socket_dir.display()),
+         )
+     })?;
+-    let lock_dir = PathBuf::from("/tmp");
++    let lock_dir = tmp_root.clone();
+ 
+     // Resolve the effective display, acquire the lock (when -displayfd is
+     // absent), and bind the socket. `_lock_guard` is held for the server's

@@ -57,10 +57,18 @@ jobs:
           git -C yserver fetch -q --depth 1 https://github.com/joske/yserver.git "$SHA"
           git -C yserver checkout -q FETCH_HEAD
           test "$(git -C yserver rev-parse HEAD)" = "$SHA"
+          # Upstream PR #349 (SetZero): the rootless Wayland host, pinned.
+          PR=$(cat PR349_COMMIT)
+          git -C yserver fetch -q --depth 200 https://github.com/ferrix-os/yserver.git "$PR"
+          git -C yserver fetch -q --deepen 200 https://github.com/joske/yserver.git "$SHA"
+          git -C yserver -c user.name=ci -c user.email=ci@localhost merge -q --no-edit "$PR"
           for p in patches/*.patch; do git -C yserver apply --verbose "../$p"; done
 
       - name: libxkbcommon (static, Android)
         run: deps/build-xkbcommon.sh "$PWD/deps-out"
+
+      - name: Stub libgbm / libinput / libudev (never called with zero cards)
+        run: deps/gen-stubs.sh deps/stub-syms "$PWD/deps-out/stubs" "$NDK_BIN/aarch64-linux-android26-clang" "$NDK_BIN/llvm-ar"
 
       - name: Cargo cache
         uses: actions/cache@v4
@@ -71,7 +79,7 @@ jobs:
             ~/.cargo/git/db
             yserver/target
             client/target
-          key: ys-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('YSERVER_COMMIT', 'patches/**', 'client/Cargo.lock') }}
+          key: ys-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('YSERVER_COMMIT', 'PR349_COMMIT', 'patches/**', 'client/Cargo.lock') }}
           restore-keys: ys-${{ env.RUST_TOOLCHAIN }}-
 
       - name: Compile
@@ -79,13 +87,14 @@ jobs:
           export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android26-clang"
           export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android26-clang"
-          export RUSTFLAGS="-L native=$PWD/deps-out/lib"
+          export RUSTFLAGS="-L native=$PWD/deps-out/lib -L native=$PWD/deps-out/stubs"
+          export PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_LIBDIR="$PWD/deps-out/stubs/pkgconfig"
           T=aarch64-linux-android
           if [ "$MODE" = check ]; then
-            (cd yserver && cargo check --locked --release --keep-going --target $T -p yserver --bin yserver)
+            (cd yserver && cargo check --locked --release --keep-going --target $T -p yserver --bin yserver --features wayland)
             (cd client && cargo check --locked --release --target $T)
           else
-            (cd yserver && cargo build --locked --release --target $T -p yserver --bin yserver)
+            (cd yserver && cargo build --locked --release --target $T -p yserver --bin yserver --features wayland)
             (cd client && cargo build --locked --release --target $T)
           fi
 
@@ -100,7 +109,7 @@ jobs:
           cp client/target/aarch64-linux-android/release/ahbprobe pkg/
           cp -r /usr/share/X11/xkb/. pkg/xkb/
           cp scripts/run-test.sh pkg/
-          echo "yserver $(cat YSERVER_COMMIT), spike ${GITHUB_SHA}" > pkg/VERSION
+          echo "yserver $(cat YSERVER_COMMIT) + PR349 $(cat PR349_COMMIT), spike ${GITHUB_SHA}" > pkg/VERSION
           "$NDK_BIN/llvm-readelf" -d pkg/yserver | grep NEEDED
           "$NDK_BIN/llvm-readelf" -d pkg/xprobe | grep NEEDED
           ls -la pkg
