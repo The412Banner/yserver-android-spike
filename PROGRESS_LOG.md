@@ -36,6 +36,7 @@ Times are EST (America/New_York).
 - **CI run 42927873800** (headSha 9ae0b21f): ✅ green (only the old `Sysv` warning). yserver now also
   NEEDS libnativewindow.so. Package sha256 `c766e18f1893be7aa0b99d2ab2d39d37f4d2bc06756b5300a81da11fe893ab64`
   (CI log == download == /sdcard/Download/yserver-android-spike-9ae0b21f.tar.gz on host and device).
+- **19:04 EST: HOLD** — Hogwarts Legacy running in Bannerlator (peer root-de: user mid-game since 19:00, first launch); device run 3 waits for root-de's "done".
 - **Resume point:** device run 3 = `sh /sdcard/Download/yserver-android-spike-step2.sh 9ae0b21f` in the
   Termux sandbox (same rootsh/su/runcon command as runs 1-2); results in ~/yserver-test/9ae0b21f/out-*.
 
