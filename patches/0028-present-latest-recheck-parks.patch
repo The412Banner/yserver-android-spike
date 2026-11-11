@@ -1,0 +1,62 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index 5b7fe3d..d2ec52c 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -922,7 +922,7 @@ pub(crate) fn drain_due_present_pending_exec(state: &mut ServerState, backend: &
+                 crate::present_scheduler::classify_msc_due(
+                     e.pending.effective_target_msc,
+                     clock_msc,
+-                    backend.present_flip_in_flight(e.pending.crtc_id),
++                    backend.present_flip_in_flight(e.pending.crtc_id) || latest_parks(&e.pending),
+                 ),
+                 crate::present_scheduler::MscDue::ExecuteNow
+             )
+@@ -1460,6 +1460,18 @@ pub(super) fn arrival_execute_or_park_present_pixmap(
+ /// path and supersession's decision about whether a fence waiter is parked
+ /// for a future target. Keep the general clock, epoch fallback, and in-flight
+ /// flip handling in one place so those decisions cannot drift apart.
++/// Bannerlator newest-frame-only: a converted present for the next host frame
++/// parks as if behind a flip (at arrival and at every re-check), so a newer one
++/// can replace it before the frame it waits for.
++fn latest_parks(pending: &PendingPresentPixmap) -> bool {
++    match &pending.request {
++        PendingPresentRequest::Pixmap(req) => {
++            crate::bannerlator::present_latest_parks(req.options, req.target_msc, req.divisor)
++        }
++        PendingPresentRequest::PixmapSynced(_) => false,
++    }
++}
++
+ fn classify_present_pixmap_msc_due_at_arrival(
+     state: &mut ServerState,
+     backend: &mut dyn Backend,
+@@ -1471,16 +1483,8 @@ fn classify_present_pixmap_msc_due_at_arrival(
+     } else {
+         cached_present_crtc_clock(state, pending.crtc_id, pending.crtc_epoch).msc
+     };
+-    // Bannerlator newest-frame-only: a converted present for the next host
+-    // frame parks as if behind a flip, so a newer one can replace it.
+-    let latest_parks = match &pending.request {
+-        PendingPresentRequest::Pixmap(req) => {
+-            crate::bannerlator::present_latest_parks(req.options, req.target_msc, req.divisor)
+-        }
+-        PendingPresentRequest::PixmapSynced(_) => false,
+-    };
+-    let flip_in_flight =
+-        epoch_current && (backend.present_flip_in_flight(pending.crtc_id) || latest_parks);
++    let flip_in_flight = epoch_current
++        && (backend.present_flip_in_flight(pending.crtc_id) || latest_parks(pending));
+     let due = if epoch_current {
+         crate::present_scheduler::classify_msc_due(
+             pending.effective_target_msc,
+@@ -1553,8 +1557,8 @@ pub(crate) fn drain_ready_present_pixmaps(state: &mut ServerState, backend: &mut
+                 )
+                 .msc
+             };
+-            let flip_in_flight =
+-                epoch_current && backend.present_flip_in_flight(entry.pending.crtc_id);
++            let flip_in_flight = epoch_current
++                && (backend.present_flip_in_flight(entry.pending.crtc_id) || latest_parks(&entry.pending));
+             let due = if epoch_current {
+                 crate::present_scheduler::classify_msc_due(
+                     entry.pending.effective_target_msc,
