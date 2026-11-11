@@ -3,12 +3,22 @@
 Times are EST (America/New_York).
 
 ## Lessons learned (don't repeat these)
+- The local tree has files that earlier patches CREATE (e.g. 0005's ahb.rs). If they stay untracked, `git diff`
+  for the next patch misses edits to them (0009 CI 42949396814 failed). Commit them locally first, and check a
+  fresh `031ec58d + merge PR349 + all patches` tree equals the local tree before pushing.
 - `workflow_dispatch` only works once the workflow file is on the default branch; with work kept off
   main, the workflow runs on push to feat/** instead (log-only commits skip it via paths-ignore).
 - Adreno 750 (Qualcomm blob 1.3.128) does not set VK_QUEUE_TRANSFER_BIT on its graphics queue
   (allowed by the spec); code that demands the bit finds "no suitable device".
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
+
+## 2026-11-10 22:0x EST — P1 works on device; P2b (GPU copy into AHB pool) written; CI 42949724435 building
+- **P1 device result (BL c72254b5 + yserver 80215caa):** yserver connected to Bannerlator's compositor: root 1280x720 (= container size), Present clock 144 Hz from the compositor, Wine desktop = xdg_toplevel, keyboard focus, DRI3 AHB pixmaps imported, clipboard missing (compositor has wlr data-control, not ext). Picture correct (Wine desktop + cube). AIO vk cube 500x500 15 s: X11 2062 fps, Wayland 2677 fps, yserver 153 fps (p1b). 0 FATAL.
+- **Two limits:** (1) CPU readback into wl_shm; (2) yserver Present runs a synced present at the next host refresh (144 Hz) — Xorg semantics; the Java server ran them at once.
+- **0009 (+0009a):** HandoffKind::Ahb on Android when the compositor has zwp_linux_dmabuf_v1 + banner_ahb_v1: per window a 3-buffer pool of AHardwareBuffers (format 5 BGRA, GPU_SAMPLED|GPU_FRAMEBUFFER|COMPOSER_OVERLAY|CPU_READ_RARELY = linear), GPU copy backing → buffer (record_backing_copy), fence polled (no CPU wait), then dma-buf wl_buffer (XRGB/ARGB8888, linear, fd = native handle data[0]) + banner_ahb_v1.attach (handle over a socketpair) once per buffer, attach/damage/frame/commit; wl_buffer.release frees the slot. `YSERVER_WAYLAND_CPU=1` keeps CPU frames.
+- **0010:** `YSERVER_PRESENT_ASYNC=1` treats next-field presents as async (run now).
+- BL 4e582b35: YSERVER_* / RUST_LOG from the game's env reach yserver (CI 42949617515).
 
 ## 2026-11-10 21:3x EST — ▶️ DISPLAY JOB started: step 1 (P0) = Android build of the rootless Wayland host (upstream PR #349)
 - **User (21:2x EST):** "yes start step 1 and do all of them until finished, with games running fast and fluid as possible with the best performance possible, stage an APK for me to test only when you finish ... use root to build and drive the device yourself, install and run. device is yours". → standing permission to install/launch on the Pocket FIT **for this yserver display job only**; still: save before every launch, tell root-6a/root-15 before taking BL over; final APK staged for the user at the end.
