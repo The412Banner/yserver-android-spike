@@ -1,0 +1,15 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/windows.rs b/crates/yserver-core/src/core_loop/process_request/windows.rs
+index 5e82350..76648c0 100644
+--- a/crates/yserver-core/src/core_loop/process_request/windows.rs
++++ b/crates/yserver-core/src/core_loop/process_request/windows.rs
+@@ -92,7 +92,9 @@ pub(crate) fn send_window_exposures(
+     if region.is_empty() {
+         return;
+     }
+-    if paint {
++    // Bannerlator: a hidden window (YSERVER_HIDE_CLASS) paints black on every exposure, its
++    // first one too (a window without a background is seeded from its parent: the root's gray).
++    if paint || crate::bannerlator::window_hidden(&state.resources, window.0) {
+         let _ = paint_window_background(state, backend, origin, window, region);
+     }
+     if subscribers_by_id(state, window, 0x0000_8000).is_empty() {
