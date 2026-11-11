@@ -15,6 +15,10 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:0x — tick timing result; renice experiment checkpoint
+- speed4 (0021 ff704741, fan max): avg 2162.39 / 1% 582.99. Per second: rootless_tick max 3.4-3.5 ms (sum ~36 ms), reclaim_gpu max 2.3 ms (sum ~28 ms), rest < 0.05 ms. VRAM churn alloc=0/s free=0/s, get_image_calls/s=0 → spikes are not extra work (avg 13-17 us per step); suspect preemption by the game's threads (yserver runs at nice 0; BL's compositor thread runs at nice -10).
+- Launch checkpoint: speed5 = AIO vk ys 30 s with all yserver threads reniced to -10 by root (perf-harness/ys-renice.sh) during the run.
+
 ## 2026-11-11 10:0x — games on 0020 OK; 0021 installed; launch checkpoint
 - ys-game speedg on d88dac66 (0020): GTA IV 65.92 (before 66.03), DiRT 110.11 (before 116.8; DiRT run after a cooldown, ThermalStatus/heat not controlled — rerun with the fan at max). 0 FATAL, crash 0.
 - Fan rule (user): no cooldowns; perf-harness/fan-max.sh (root loop pwm1=255, AYANEO rewrites it) before test blocks, fan-restore.sh after. Fan loop RUNNING now.
