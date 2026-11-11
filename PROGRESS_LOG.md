@@ -15,6 +15,12 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 13:2x — ✅ newest frame only DONE (patches 0024-0029), device-proven; yserver cdb1aac0 INSTALLED on the FIT
+- 0029 (77446386, cdb1aac0, /sdcard/Download/yserver-android-0029-77446386): cube 2057.70 / 554.15, HUD 2060.2 fps (AIO 2082), GPU 25 %; GTA IV 65.87 (before 65.92); DiRT 110.17 avg / 72.4 min (range today 109-114). 0 FATAL, crash 0 everywhere.
+- With it: ~93 % of the cube's presents replaced before a copy, ~1 copy per host frame; same fps and 1 % lows within spread, lower GPU load (24-25 % vs ~30 %). Power reading not lower in this run (13.3 W, fan at max) — no battery claim.
+- Patches in the build now: 0001-0029 (0026 = debug-level supersede lines only). Off switch: YSERVER_PRESENT_LATEST=0. FIFO (vsync) presents and FPS-limiter sessions unchanged.
+- Fan restored, Termux in front, peers told.
+
 ## 2026-11-11 13:1x — 0029 green; launch checkpoint
 - CI 43064600562 green; staged /sdcard/Download/yserver-android-0029-77446386. Runs: speed25 cube 30 s (HUD = game fps?), GTA IV + DiRT (speedg6) on 0029; if all good it stays installed.
 
