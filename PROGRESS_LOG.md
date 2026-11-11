@@ -15,6 +15,10 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 11:2x — 0024 GREEN + installed; launch checkpoint (A/B block)
+- CI 43053847417 green; yserver staged /sdcard/Download/yserver-android-0024-221d69d6, installed in BL files/yserver (BL 89e78d6a = main bd3bd1be code; main CI 43053098056 green 4/4).
+- Launch checkpoint: speed13 = cube ys 30 s (0024 default on), speed14 = same with YSERVER_PRESENT_LATEST=0, then GTA IV + DiRT on 0024 (ys-game speedg4). Fan max for the block, restore after.
+
 ## 2026-11-11 11:1x — BL hud/desktop merged (main bd3bd1be); patch 0024 "newest frame only" building
 - BL: feat/yserver-hud-desktop merged into main bd3bd1be (after a log-only e0ba3ded "Merge" commit by mistake; see BL log), CI 43053098056.
 - 0024 (221d69d, CI 43053847417): YSERVER_PRESENT_LATEST (default on): with forced async + no cap, client-async presents target the next host MSC as synced presents, and rootless present_supersedes_same_msc is on (not under the cap) → a newer present replaces a parked one (idle, uncopied). FIFO presents unchanged (immediate). A/B switch YSERVER_PRESENT_LATEST=0.
