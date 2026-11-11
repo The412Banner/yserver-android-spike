@@ -1,0 +1,22 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index d2ec52c..12dae1f 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -1050,7 +1050,6 @@ pub(super) fn execute_present_pixmap_copy(
+         ),
+     };
+ 
+-    crate::bannerlator::count_present(window);
+     let variable_refresh = crate::properties::variable_refresh_property_enabled(
+         state
+             .atoms
+@@ -2240,6 +2239,9 @@ pub(super) fn handle_present_request(
+                     "PACE-INSTR t={} pid={} client={} serial={} stage=request kind=pixmap target_msc={} div={} rem={} kernel_msc={} eff={:?}",
+                     pace_instr_ms(), present_id, client_id.0, req.serial, req.target_msc, req.divisor, req.remainder, domain.raw_msc, effective_target_msc
+                 );
++                // The game's frame rate for Bannerlator's HUD: every present the
++                // client sends, replaced ones included.
++                crate::bannerlator::count_present(req.window);
+                 let pending = PendingPresentPixmap {
+                     origin,
+                     client_id,

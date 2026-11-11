@@ -15,6 +15,12 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 13:0x — ✅ newest frame only WORKS (0028); HUD count fix 0029
+- speed22 (0028, 10 s, debug): 2013.63 / 513.88 with heavy logging; 20062 presents, 18582 superseded (93 %), 1352 executed (~1 per host frame).
+- speed23 (0028 on, 30 s): 2050.75 / 578.69, HUD GPU 24 %; speed24 (YSERVER_PRESENT_LATEST=0): 2170.29 / 569.33 (GPU ~30 % in earlier screenshots) → same fps/lows within spread, less GPU work.
+- Side effect: HUD showed 146 fps — count_present sat in execute_present_pixmap_copy (only executed copies). 0029 counts at request arrival.
+- Device back on 0023 between builds.
+
 ## 2026-11-11 12:5x — 0028 green; launch checkpoint
 - CI 43063175060 green; staged /sdcard/Download/yserver-android-0028-d22b46b7. speed22 = cube 10 s present_pace=debug; if supersession works: speed23/24 cube 30 s on/off, GTA IV + DiRT. Restore 0023 after.
 
