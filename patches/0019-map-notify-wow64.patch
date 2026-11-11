@@ -1,0 +1,23 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/windows.rs b/crates/yserver-core/src/core_loop/process_request/windows.rs
+index 622e0b7..5e82350 100644
+--- a/crates/yserver-core/src/core_loop/process_request/windows.rs
++++ b/crates/yserver-core/src/core_loop/process_request/windows.rs
+@@ -2704,10 +2704,16 @@ fn notify_wine_window_map(state: &ServerState, window: ResourceId) {
+             String::from_utf8_lossy(class).replace(char::is_whitespace, "_")
+         })
+         .unwrap_or_default();
++    let wow64 = state
++        .atoms
++        .id_for("_NET_WM_WOW64")
++        .and_then(|a| state.resources.window_property(window, a))
++        .is_some_and(|v| v.data.first() == Some(&1));
+     log::info!(
+         target: "yserver::bannerlator",
+-        "YSERVER-MAP window=0x{:x} hwnd=0x{hwnd:x} pid={pid} class={class}",
+-        window.0
++        "YSERVER-MAP window=0x{:x} hwnd=0x{hwnd:x} pid={pid} wow64={} class={class}",
++        window.0,
++        u8::from(wow64)
+     );
+ }
+ 
