@@ -15,6 +15,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:0x — no-telemetry runs; DiRT rerun checkpoint
+- speed6/speed7 (ff704741, no env, fan max): 2193.67 / 591.00 and 2127.87 / 585.15 → 1% low ~585-591 without telemetry too (old binary ~304-323; X11 828).
+- User screenshot 09:56:28 (speed5): Wine virtual desktop (wallpaper + taskbar) visible on yserver (X11 mode shows black around the window); FusionHUD 144.3 fps "Wayland" = frames reaching the 144 Hz screen via the compositor, AIO counter 2254 = frames rendered.
+- Launch checkpoint: DiRT Showdown benchmark on yserver ff704741 with fan max (ys-game.sh dirt speedg2 ys).
+
 ## 2026-11-11 10:0x — renice: no effect; launch checkpoint speed6 (no telemetry)
 - speed5 (all yserver threads nice -10 by root): 2129.79 / 505.59, rootless_tick max ~3.5 ms, reclaim_gpu ~2.35 ms, iter_wall_max ~3.7 ms → not preemption. The spikes come once per second = likely the per-second telemetry emit itself (render_telemetry/vram/pixmap-pool/loop lines only exist with YSERVER_LOOP_TELEMETRY; a normal run logs ~69 lines total).
 - Launch checkpoint: speed6 = AIO vk ys 30 s, no env (normal config) on ff704741.
