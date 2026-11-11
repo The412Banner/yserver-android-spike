@@ -15,6 +15,12 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 09:3x — yserver speed job START (user: "do the yserver speed work"; feat/android-build 5341dae, yserver 4e229a33 on the FIT)
+- Why: yserver = X11 speed in games, but cube avg 2120 vs Wayland zero-copy 2776 and 1% low 323 vs X11 847.
+- Suspects (code read): rootless/ahb.rs tick waits up to COPY_WAIT_NS = 4 ms on the core thread for each window→AHB copy (all clients stall); every frame is copied twice inside yserver (Present pixmap → window backing, backing → pool AHB).
+- Plan: 1 measure (AIO vk ys 30 s, YSERVER_LOOP_TELEMETRY=1: iter_wall_max); 2 no blocking wait; 3 hand the game's own AHB straight to the compositor when its pixmap covers the whole window; build in CI, stage files/yserver (backup first), A/B on the FIT.
+- Launch checkpoint: AIO vk ys 30 s telemetry run (BL 4e8c7e65 = main 02577e6a). Restart: rootsh "sh /sdcard/Download/perf-harness/ys-aio.sh vk speed0 ys 30 YSERVER_LOOP_TELEMETRY=1".
+
 ## 2026-11-11 01:3x EST — ✅ FINISHED: yserver 4e229a33 (0001–0019) + BL 931c441d device-proven; parity with X11
 - GTA IV CPU-mask fix (BL 95325269): ys 66.03 (= X11 66.1, Wayland 65.4). DiRT 116.8. Cube 2120 vs X11 2181. Frame cap 60.01. Steam client renders (store + friends). Click → Start menu works. Clipboard: compositor now offers ext_data_control_v1 (BL 931c441d), yserver's "no clipboard" warning gone (copy/paste not tried).
 - Final staged: /sdcard/Download/yserver-android-FINAL-4e229a33 (e5bbb132…) = files/yserver/yserver on the FIT.
