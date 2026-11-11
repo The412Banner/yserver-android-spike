@@ -1,0 +1,106 @@
+diff --git a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
+index 239f7c5..cb3a560 100644
+--- a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
++++ b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
+@@ -477,19 +477,25 @@ impl Platform for PlatformBackend {
+     }
+ 
+     fn before_block(b: &mut KmsBackend) {
++        let t = tick_timing::start();
+         if let Some(rootless) = b.pstate.rootless.as_mut() {
+             rootless.host.borrow_mut().flush();
+             if let Some(presenter) = rootless.presenter.as_mut() {
+                 presenter.poll_retiring();
+             }
+         }
++        tick_timing::record(2, t);
++        let t = tick_timing::start();
+         b.reclaim_retired_gpu_work();
++        tick_timing::record(3, t);
+         b.platform
+             .emit_tearing_summary_if_due(b.pstate.tearing.is_on(), b.telemetry.avg_gpu_render_ns());
+     }
+ 
+     fn flush_before_damage_notify(b: &mut KmsBackend) {
++        let t = tick_timing::start();
+         b.flush_before_damage_exposure();
++        tick_timing::record(4, t);
+     }
+ 
+     fn next_wakeup(b: &KmsBackend) -> Option<std::time::Instant> {
+@@ -502,8 +508,13 @@ impl Platform for PlatformBackend {
+     }
+ 
+     fn maybe_composite(b: &mut KmsBackend) -> io::Result<()> {
++        let t = tick_timing::start();
+         let composed = KmsBackend::backend_scanout_maybe_composite(b);
++        tick_timing::record(0, t);
++        let t = tick_timing::start();
+         b.rootless_tick();
++        tick_timing::record(1, t);
++        tick_timing::maybe_emit();
+         composed
+     }
+ 
+@@ -1057,3 +1068,61 @@ impl KmsBackend {
+         led_bits_for_indicators(self.lit_indicators())
+     }
+ }
++
++/// Debug (`YSERVER_TICK_TIMING=1`): the longest and the total time per second
++/// of each piece of backend work the core loop runs between requests.
++mod tick_timing {
++    use std::cell::{Cell, RefCell};
++    use std::time::{Duration, Instant};
++
++    const NAMES: [&str; 5] = ["scanout_composite", "rootless_tick", "host_flush", "reclaim_gpu", "flush_before_damage"];
++
++    thread_local! {
++        static MAX: RefCell<[Duration; 5]> = const { RefCell::new([Duration::ZERO; 5]) };
++        static SUM: RefCell<[Duration; 5]> = const { RefCell::new([Duration::ZERO; 5]) };
++        static LAST: Cell<Option<Instant>> = const { Cell::new(None) };
++    }
++
++    fn on() -> bool {
++        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++        *ON.get_or_init(|| std::env::var("YSERVER_TICK_TIMING").is_ok_and(|v| v == "1"))
++    }
++
++    pub(super) fn start() -> Option<Instant> {
++        on().then(Instant::now)
++    }
++
++    pub(super) fn record(i: usize, start: Option<Instant>) {
++        let Some(start) = start else { return };
++        let d = start.elapsed();
++        MAX.with(|m| {
++            let mut m = m.borrow_mut();
++            if d > m[i] {
++                m[i] = d;
++            }
++        });
++        SUM.with(|s| s.borrow_mut()[i] += d);
++    }
++
++    pub(super) fn maybe_emit() {
++        if !on() {
++            return;
++        }
++        let now = Instant::now();
++        let last = LAST.with(|l| l.get());
++        let Some(last) = last else {
++            LAST.with(|l| l.set(Some(now)));
++            return;
++        };
++        if now.duration_since(last) < Duration::from_secs(1) {
++            return;
++        }
++        LAST.with(|l| l.set(Some(now)));
++        let max = MAX.with(|m| std::mem::replace(&mut *m.borrow_mut(), [Duration::ZERO; 5]));
++        let sum = SUM.with(|s| std::mem::replace(&mut *s.borrow_mut(), [Duration::ZERO; 5]));
++        let parts: Vec<String> = (0..5)
++            .map(|i| format!("{} max={:.2}ms sum={:.1}ms", NAMES[i], max[i].as_secs_f64() * 1000.0, sum[i].as_secs_f64() * 1000.0))
++            .collect();
++        log::info!("tick timing [{:.2}s]: {}", now.duration_since(last).as_secs_f64(), parts.join(" | "));
++    }
++}
