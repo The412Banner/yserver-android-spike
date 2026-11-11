@@ -1,0 +1,50 @@
+diff --git a/crates/yserver-core/src/bannerlator.rs b/crates/yserver-core/src/bannerlator.rs
+index df08620..fdaf714 100644
+--- a/crates/yserver-core/src/bannerlator.rs
++++ b/crates/yserver-core/src/bannerlator.rs
+@@ -45,6 +45,23 @@ pub fn present_latest() -> bool {
+     *ON.get_or_init(|| std::env::var("YSERVER_PRESENT_LATEST").map_or(true, |v| v != "0"))
+ }
+ 
++/// `YSERVER_PRESENT_ASYNC=1`: presents run at once unless a frame cap is set.
++pub fn present_async_forced() -> bool {
++    static ON: OnceLock<bool> = OnceLock::new();
++    *ON.get_or_init(|| std::env::var_os("YSERVER_PRESENT_ASYNC").is_some_and(|v| v == "1"))
++}
++
++/// A present newest-frame-only holds until the next host frame. In copy mode
++/// a present for the next MSC otherwise runs at once (only a flip in flight
++/// parks it), so nothing newer could ever replace it.
++pub fn present_latest_parks(options: u32, target_msc: u64, divisor: u64) -> bool {
++    present_latest()
++        && present_async_forced()
++        && crate::frame_cap::cap_mhz() == 0
++        && (options & crate::present_scheduler::PRESENT_ALL_ASYNC_OPTIONS != 0
++            || (target_msc == 0 && divisor == 0))
++}
++
+ /// The window draws nothing and clears to black.
+ pub fn window_hidden(resources: &ResourceTable, window: u32) -> bool {
+     let names = hide_classes();
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index aed70c4..5b7fe3d 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -1471,7 +1471,16 @@ fn classify_present_pixmap_msc_due_at_arrival(
+     } else {
+         cached_present_crtc_clock(state, pending.crtc_id, pending.crtc_epoch).msc
+     };
+-    let flip_in_flight = epoch_current && backend.present_flip_in_flight(pending.crtc_id);
++    // Bannerlator newest-frame-only: a converted present for the next host
++    // frame parks as if behind a flip, so a newer one can replace it.
++    let latest_parks = match &pending.request {
++        PendingPresentRequest::Pixmap(req) => {
++            crate::bannerlator::present_latest_parks(req.options, req.target_msc, req.divisor)
++        }
++        PendingPresentRequest::PixmapSynced(_) => false,
++    };
++    let flip_in_flight =
++        epoch_current && (backend.present_flip_in_flight(pending.crtc_id) || latest_parks);
+     let due = if epoch_current {
+         crate::present_scheduler::classify_msc_due(
+             pending.effective_target_msc,

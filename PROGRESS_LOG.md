@@ -15,6 +15,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 12:2x — ROOT CAUSE found + patch 0027
+- speed18 (0026 debug, 8 s): 428.02 fps; 0 supersede_check / 0 supersede_off lines → present_pending_exec held nothing for the window at arrival. Stages: request → source_ready (= arrival_execute_or_park ExecuteNow) → copy at once; only the completion (Complete + Idle) waited for the target MSC (present_complete_gate) → the game's buffers came back once per MSC (~3 per MSC = ~430 fps), nothing parked so nothing to supersede.
+- Why: present_scheduler::classify_msc_due — a copy-mode present with eff == clock + 1 runs NOW unless a flip is in flight (Xorg copy semantics). Only eff >= clock + 2 or a flip parks.
+- 0027: classify_present_pixmap_msc_due_at_arrival treats a converted present (bannerlator::present_latest_parks: latest on, async forced, no cap, async option or target 0) as behind a flip → Park → supersession can replace it; at the MSC drain it executes. Local check green.
+
 ## 2026-11-11 12:1x — diagnostic build green; launch checkpoint
 - CI 43059771751 green; /sdcard/Download/yserver-android-0026dbg-97dc0757 installed for ONE run (speed18 = cube ys 8 s, RUST_LOG=info,present_pace=debug), then yserver 0023 (/sdcard/Download/yserver-android-0023-3035e164) goes back.
 
