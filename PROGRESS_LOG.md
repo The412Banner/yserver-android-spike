@@ -15,6 +15,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 11:1x — BL hud/desktop merged (main bd3bd1be); patch 0024 "newest frame only" building
+- BL: feat/yserver-hud-desktop merged into main bd3bd1be (after a log-only e0ba3ded "Merge" commit by mistake; see BL log), CI 43053098056.
+- 0024 (221d69d, CI 43053847417): YSERVER_PRESENT_LATEST (default on): with forced async + no cap, client-async presents target the next host MSC as synced presents, and rootless present_supersedes_same_msc is on (not under the cap) → a newer present replaces a parked one (idle, uncopied). FIFO presents unchanged (immediate). A/B switch YSERVER_PRESENT_LATEST=0.
+- Test plan: cube A/B (latest on vs 0), GTA IV + DiRT on, check games aren't throttled (fps) and no hang; HUD fps shows the game rate.
+
 ## 2026-11-11 10:5x — ✅ "do all three" result: HUD + black desktop DEVICE-PROVEN (BL 89e78d6a + yserver de999f09)
 - speed12 (no extra env): 2131.62 / 539.75; screenshot: Fusion HUD 2218.8 fps, 0.5 ms (AIO 2176) — was 144.0 / 6.9 ms; desktop black, no wallpaper/taskbar. 0 FATAL, crash 0.
 - Slow frames: remaining once-a-second spikes = flush_paint ~3.5-4 ms (the cube's per-second title/label repaint) + poll_retired ~2 ms (driver); lazy present copy ≤ +12 % on the cube's 1 % low (speed10) — offered, not built.
