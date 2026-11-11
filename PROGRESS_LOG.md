@@ -15,6 +15,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 09:4x — 0020 built + staged; A/B launch checkpoint
+- speed1 (old binary, YSERVER_DEBUG_SKIP_PRESENT_COPY=1): avg 2014.18, 1% 325.70, stalls unchanged (op72 4-5 ms, iter_wall_max ~10.5 ms) → removing the present copy alone gains nothing; direct hand-off (flip) parked.
+- CI 43037424736 failed twice in "Tools" (runner DNS: azure.archive.ubuntu.com unresolvable) → workflow fallback 9cfe039 (glslc from NDK shader-tools, ninja from PyPI); CI 43039744744 GREEN (fallback used). yserver d88dac66 (contains YSERVER_PUTIMAGE_CLIP_CPU + YSERVER_COPY_WAIT_US), staged /sdcard/Download/yserver-android-0020-9cfe0394, installed in BL files/yserver (owner/label kept). Old binary e5bbb132 = /sdcard/Download/yserver-android-FINAL-4e229a33 (undo: cat it back).
+- Launch checkpoint: speed2 = AIO vk ys 30 s new defaults; speed3 = same with YSERVER_PUTIMAGE_CLIP_CPU=1 YSERVER_COPY_WAIT_US=4000 (old behaviour).
+
 ## 2026-11-11 09:4x — speed job: measurement 1 + patch 0020 (CI 43037424736 building)
 - speed0 (AIO vk ys 30 s, telemetry, yserver 4e229a33): avg 2070.99, 1% low 304.03. Loop: busy ~23 %, but iter_wall_max ~10 ms EVERY second; longest request op72 (PutImage) 4-5 ms (14/s, 28 ms/s); op145 (Present) 2144/s, 192 ms/s (0.09 ms each).
 - Cause of slow PutImage: Wine's window-surface upload to the AIO window is clipped by its Vulkan child → draw.rs put_image (has_clip || children_clip) → put_image_rop_cpu → GPU readback (waits for the game's GPU work).
