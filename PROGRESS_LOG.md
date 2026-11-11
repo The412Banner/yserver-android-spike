@@ -10,6 +10,16 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-10 — ✅ Device run 4 PASSED: AHB DRI3 BGRA + RGBA (feat/android-build bc0a13f0, device-proven headless)
+- **Run 4 (19:30:28 EST, package bc0a13f0, Termux sandbox uid 10183):** SHA256SUMS ok. xprobe **15/15**,
+  ahbprobe **10/10**: DRI3 1.2, Present 1.4; BGRA import ack 0.10 ms, CopyArea + Present exact (3.55 ms);
+  **RGBA import ack 0.48 ms, CopyArea + Present exact (2.60 ms) = patch 0006 works**; 300-present loop
+  330/s, 3.03 ms avg, worst 5.52 ms (lower than run 3's 508/s because the RGBA half now really blits;
+  in run 3 those copies failed and did nothing); empty socket refused; RSS 45.6 → 52.2 MB.
+  yserver.log 0 WARN, 0 panic/error lines; crash buffer empty; socket 118 ms. Recorder 69 frames (defaults
+  unchanged by patch 0007).
+- **NOT tested:** real screen, Wine, input. Next = step 3 (BL build feat/yserver-spike, CI 42931263093).
+
 ## 2026-11-10 — Device run 3: AHB DRI3 works for BGRA, RGBA fixed in patch 0006 (feat/android-build, CI pending)
 - **Why:** user "continue yserver" (19:12 EST); session root-66 took over from the earlier session.
 - **Device run 3 (19:14:04 EST, package 9ae0b21f, Termux sandbox uid 10183):** SHA256SUMS ok; xprobe 15/15
