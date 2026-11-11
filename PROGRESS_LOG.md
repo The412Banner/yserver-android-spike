@@ -34,7 +34,8 @@ Times are EST (America/New_York).
   Defaults unchanged (every frame, no cap). A game at 60 fps would otherwise write ~200 MB/s.
 - **Step 3 STARTED:** Bannerlator branch feat/yserver-spike 4903bdb7 (`BANNER_YSERVER=1` → BL runs
   files/yserver/yserver instead of the Java X server, headless + record every 30th frame, max 40).
-- **Next:** CI → stage → device run 4 (expect ahbprobe 10/10) → stage yserver into BL's files/yserver
+- **CI run 42931291050** (headSha bc0a13f0): ✅ green; package sha256 `e6a2dea679478539c1074b25129c883051f05d3a2c9041bdcbbb4a77a0a72fcb` (CI log == download == /sdcard/Download/yserver-android-spike-bc0a13f0.tar.gz, host + device). 19:3x EST device run 4 starting.
+- **Next:** device run 4 (expect ahbprobe 10/10) → stage yserver into BL's files/yserver
   (owner = BL uid, BL's SELinux label) → ask the user before installing the BL test build.
 
 ## 2026-11-10 — Android buffer (AHB) DRI3 path (feat/android-build, IN PROGRESS, nothing built yet)
