@@ -18,6 +18,10 @@ for n in gbm input udev; do
   rm -f "$OUT/lib$n.a"
   "$AR" rcs "$OUT/lib$n.a" "$OUT/stub_$n.o"
 done
+# libxshmfence: a real (tiny) implementation, DRI3 FenceFromFD uses it.
+"$CC" -c -O2 -fPIC -o "$OUT/xshmfence.o" "$(dirname "$0")/xshmfence.c"
+rm -f "$OUT/libxshmfence.a"
+"$AR" rcs "$OUT/libxshmfence.a" "$OUT/xshmfence.o"
 mkdir -p "$OUT/pkgconfig"
 for n in gbm:gbm input:libinput udev:libudev; do
   lib=${n%%:*} pc=${n#*:}
