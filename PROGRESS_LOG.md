@@ -15,6 +15,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 11:0x — speed11: black desktop CONFIRMED (0023 de999f09); block closed
+- speed11 (YSERVER_HIDE_CLASS=explorer.exe): 2194.22 / 588.64; screenshot: wallpaper + taskbar gone, area black like X11 mode; window frame, cube, HUD fine. 0 FATAL, crash 0.
+- HUD part needs BL 89e78d6a installed (staged, user's yes pending). Fan restored, Termux in front, peers told.
+- Installed now: BL 4e8c7e65 (main code) + yserver de999f09 (0020-0023; hiding only active when YSERVER_HIDE_CLASS is set — the new BL sets it for shortcuts).
+
 ## 2026-11-11 11:0x — speed10 result; 0023 installed; launch checkpoint
 - speed10 (0022, YSERVER_DEBUG_SKIP_PRESENT_COPY=1): 2157.43 / 668.49 (vs ~585-595 with copies); flush_paint spike 3.5-4 ms remains once a second (= the AIO window's per-second title/label repaint through PutImage), reclaim sum ~13 ms (was ~29) → lazy present copy worth ~+12 % on the cube's 1 % low at most; not built (offer).
 - BL feat/yserver-hud-desktop APK staged /sdcard/Download/Bannerlator-yserver-hud-desktop-89e78d6a-pubg.apk sha256 fe110cd2… (host == device), NOT installed (needs the user's yes).
