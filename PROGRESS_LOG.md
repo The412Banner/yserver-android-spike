@@ -33,7 +33,11 @@ Times are EST (America/New_York).
 - **CI run 42927479742** (headSha 368efd01): FAILED at Compile — yserver-render (all the AHB Vulkan
   code) compiled clean; yserver crate: `unresolved import crate::kms::vk::ahb` (the crate re-exports
   yserver-render's vk modules by name, `crates/yserver/src/kms/vk/mod.rs`). Fixed in patch 0005.
-- **Resume point:** push → CI on feat/android-build; then stage + run like step 2.
+- **CI run 42927873800** (headSha 9ae0b21f): ✅ green (only the old `Sysv` warning). yserver now also
+  NEEDS libnativewindow.so. Package sha256 `c766e18f1893be7aa0b99d2ab2d39d37f4d2bc06756b5300a81da11fe893ab64`
+  (CI log == download == /sdcard/Download/yserver-android-spike-9ae0b21f.tar.gz on host and device).
+- **Resume point:** device run 3 = `sh /sdcard/Download/yserver-android-spike-step2.sh 9ae0b21f` in the
+  Termux sandbox (same rootsh/su/runcon command as runs 1-2); results in ~/yserver-test/9ae0b21f/out-*.
 
 ## 2026-11-10 — ✅ Step 2 PASSED on the Pocket FIT (feat/android-build 9460d31f, device-proven headless)
 - **Device run 2 (18:41:39 EST, package 9460d31f, uid 10183 in u:r:untrusted_app_27:s0:c183,c256,c512,c768):**
