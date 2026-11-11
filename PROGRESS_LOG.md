@@ -10,6 +10,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-10 21:3x EST — ▶️ DISPLAY JOB started: step 1 (P0) = Android build of the rootless Wayland host (upstream PR #349)
+- **User (21:2x EST):** "yes start step 1 and do all of them until finished, with games running fast and fluid as possible with the best performance possible, stage an APK for me to test only when you finish ... use root to build and drive the device yourself, install and run. device is yours". → standing permission to install/launch on the Pocket FIT **for this yserver display job only**; still: save before every launch, tell root-6a/root-15 before taking BL over; final APK staged for the user at the end.
+- **Plan (P0–P3):** P0 build PR #349 (SetZero, ferrix-os up/v2-pr4 @ 6f3c46ff) for aarch64-linux-android; P1 BL `BANNER_YSERVER` = compositor + yserver `--rootless` as its Wayland client, Wine on winex11; P2 zero-copy (AHB pixmaps → dma-buf wl_buffer + banner_ahb_v1); P3 clipboard/size/cursor.
+- **Local tree:** session scratchpad `yserver/` branch android-wl = 031ec58d (master) + merge of 6f3c46ff (PR #349; merge-base 34574860; clean) + patches 0001–0007 (all apply in order). P0 change being tried: `cfg(kms)`/epoll/eventfd/wayland_host on for android (build.rs), drm/gbm/input + wayland-client/-protocols deps for android (Cargo.toml); udev/libinput/gbm resolved by stub libs (never called with zero cards + host seat). Local `cargo check` (glslc installed in the container; CC=clang --target=aarch64-linux-gnu just for build-script C during check; fake libudev.pc).
+
 ## 2026-11-10 — ✅ Device run 4 PASSED: AHB DRI3 BGRA + RGBA (feat/android-build bc0a13f0, device-proven headless)
 - **Run 4 (19:30:28 EST, package bc0a13f0, Termux sandbox uid 10183):** SHA256SUMS ok. xprobe **15/15**,
   ahbprobe **10/10**: DRI3 1.2, Present 1.4; BGRA import ack 0.10 ms, CopyArea + Present exact (3.55 ms);
