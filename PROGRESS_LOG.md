@@ -13,6 +13,13 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-10 23:1x EST — blit fixes the Present cost; DiRT "16 fps" = inactive window (user found it); 0014/0015
+- **0013 YSERVER_COPY_BLIT=1 on device (be806b03):** PresentPixmap 1.84 ms → ~0.1 ms (op145 416/s in 41.8 ms; core 7.5 % busy); cube 407 fps synced, HUD 142 fps on screen (full 144 Hz). With YSERVER_PRESENT_ASYNC=1 too: **2093 fps** (X11 Java 2062, Wayland 2677).
+- **DiRT Showdown benchmark (800x600 windowed):** x11 114.3 / wl 113.1 at 22:2x, then ys AND later x11 runs at 16 fps with GPU 10 %. Traced: yserver handles each Present in ~3 ms, the game waits ~65 ms between them. **User (23:0x): "every time we ran yserver with the game windowed it was 16 FPS with no sound until I maximized the window during the last two runs"** → the game throttles + mutes while its window is inactive; maximizing activated it: x11 105.7, ys 92.3 (ys run still on the vkCmdCopyImage path). Wayland mode activates via the compositor's bring-to-front; X11 mode via DesktopHelper on map; yserver mode had nothing.
+- **0014:** blit copies default on Android; `YSERVER-MAP window= hwnd= pid= class=` info line (target yserver::bannerlator) when a window with _NET_WM_HWND maps. **0015:** only application windows (WM_HINTS window_group == self, >1x1), like the Java server.
+- **BL 7938d479:** YServerComponent reads yserver output through a pipe (log file + YSERVER-MAP → winHandler.bringToFront(class, hwnd), again after 1 s), YSERVER_PRESENT_ASYNC=1 default.
+- Side findings: DXVK's 2nd swapchain is FIFO in both modes; `MESA_VK_WSI_PRESENT_MODE=immediate` also hid the problem (89 fps). kgsl "CP: AHB bus error" lines appear in every run incl. the X11 cube (harmless here).
+
 ## 2026-11-10 22:2x EST — P2b on device: AHB hand-off works; Adreno blob vkCmdCopyImage allocates per call (profiled)
 - **0009 on device (yserver 47ef5361, BL c72254b5):** "goes to the host as AHardwareBuffers (1280x720, 3 buffers)", picture + colours correct, compositor HUD now shows (GPU buffers). AIO vk cube 500x500: 351 fps (was 153 CPU frames); HUD 79.8 fps on screen.
 - **0012 (copy wait ≤4 ms):** HUD 101.4 fps on screen (9.9 ms). Cube 4642/15 s (309 fps); `YSERVER_PRESENT_ASYNC=1` 4452 (no change → not the MSC wait).
