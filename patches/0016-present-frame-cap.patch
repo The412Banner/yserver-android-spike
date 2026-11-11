@@ -1,0 +1,55 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index 0c2150e..8e0005b 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -724,6 +724,40 @@ pub(super) fn select_present_domain(
+     Ok(bind_present_window_domain(state, backend, window, crtc_id))
+ }
+ 
++/// Frame cap (`YSERVER_PRESENT_HZ` set, the Present clock at the cap): a
++/// window's presents take one MSC each, in order, so none supersedes
++/// another and the client gets one buffer back per MSC — a mailbox client
++/// is held to the cap too, as Bannerlator's Java X server holds it by
++/// delaying IdleNotify. Off: the target as computed.
++fn frame_cap_target(window: u32, eff: u64) -> u64 {
++    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++    if !*ON.get_or_init(|| {
++        std::env::var("YSERVER_PRESENT_HZ")
++            .ok()
++            .and_then(|v| v.trim().parse::<f64>().ok())
++            .is_some_and(|hz| hz >= 1.0)
++    }) {
++        return eff;
++    }
++    thread_local! {
++        static LAST: std::cell::RefCell<std::collections::HashMap<u32, u64>> =
++            std::cell::RefCell::new(std::collections::HashMap::new());
++    }
++    LAST.with(|last| {
++        let mut last = last.borrow_mut();
++        let target = match last.get(&window) {
++            Some(&prev) if !msc_after(eff, prev) => prev.wrapping_add(1),
++            _ => eff,
++        };
++        last.insert(window, target);
++        target
++    })
++}
++
++fn msc_after(a: u64, b: u64) -> bool {
++    a.wrapping_sub(b) as i64 > 0
++}
++
+ pub(super) fn effective_present_target_raw(
+     domain: PresentDomainSelection,
+     target_msc: u64,
+@@ -2152,7 +2186,8 @@ pub(super) fn handle_present_request(
+                     req.divisor,
+                     req.remainder,
+                     masked_options,
+-                );
++                )
++                .map(|eff| frame_cap_target(req.window, eff));
+                 log::debug!(
+                     target: "present_pace",
+                     "PACE-INSTR t={} pid={} client={} serial={} stage=request kind=pixmap target_msc={} div={} rem={} kernel_msc={} eff={:?}",
