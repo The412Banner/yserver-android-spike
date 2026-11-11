@@ -15,6 +15,15 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:0x — ✅ speed step 1 DONE: patch 0020 (+ debug 0021), device-proven on the Pocket FIT
+- Installed in BL files/yserver: ff704741 (= 0020 + 0021; staged /sdcard/Download/yserver-android-0021-95cd7778). Old 4e229a33 = /sdcard/Download/yserver-android-FINAL-4e229a33.
+- AIO Vulkan cube on yserver (30 s): before 2071 avg / 304 1% low (with telemetry; 2120 / 323 without) → after 2163-2194 / 581-591 (no telemetry 2194/591, 2128/585). Same binary with YSERVER_PUTIMAGE_CLIP_CPU=1 YSERVER_COPY_WAIT_US=4000: 2118 / 329. X11 ref 2165 / 828; Wayland ref 2776.
+- Games on yserver: GTA IV 65.92 (before 66.03); DiRT Showdown fan max: 0020 on 113.65 avg / 81.0 min, off (switches) 109.15 / 84.3 (X11 ref 114.3). 0 FATAL, crash 0 in every run.
+- Loop: longest request 0.14-0.27 ms (was PutImage 4-5 ms); iteration max ~3.8 ms (was ~10 ms). Remaining per-second maxima: rootless_tick ~3.5 ms, reclaim_gpu ~2.3 ms (not preemption: renice -10 no change; not VRAM churn: alloc/free 0/s).
+- Parked: direct hand-off of the game's AHB (skip-present-copy test: no gain).
+- Fan: fan-max.sh loop used for the block, restored (pwm1 back to AYANEO, 58/2580 rpm). Termux in front, peers told.
+- Open: remaining 1% low gap to X11 (585 vs 828); HUD on yserver counts frames reaching the screen (144 Hz) not game frames; yserver shows Wine's virtual desktop (wallpaper + taskbar) where X11 mode shows black.
+
 ## 2026-11-11 10:0x — no-telemetry runs; DiRT rerun checkpoint (DiRT 0020 on: 113.65; next: same binary with the old behaviour switches, speedg3)
 - speed6/speed7 (ff704741, no env, fan max): 2193.67 / 591.00 and 2127.87 / 585.15 → 1% low ~585-591 without telemetry too (old binary ~304-323; X11 828).
 - User screenshot 09:56:28 (speed5): Wine virtual desktop (wallpaper + taskbar) visible on yserver (X11 mode shows black around the window); FusionHUD 144.3 fps "Wayland" = frames reaching the 144 Hz screen via the compositor, AIO counter 2254 = frames rendered.
