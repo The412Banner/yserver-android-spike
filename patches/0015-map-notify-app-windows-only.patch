@@ -1,0 +1,31 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/windows.rs b/crates/yserver-core/src/core_loop/process_request/windows.rs
+index 017c95a..622e0b7 100644
+--- a/crates/yserver-core/src/core_loop/process_request/windows.rs
++++ b/crates/yserver-core/src/core_loop/process_request/windows.rs
+@@ -2653,6 +2653,26 @@ fn notify_wine_window_map(state: &ServerState, window: ResourceId) {
+     let Some(hwnd_atom) = state.atoms.id_for("_NET_WM_HWND") else {
+         return;
+     };
++    // An application window, as Bannerlator's Java X server tells them
++    // (`Window.isApplicationWindow`): its own window group, bigger than 1x1.
++    let Some(w) = state.resources.window(window) else {
++        return;
++    };
++    if w.width <= 1 || w.height <= 1 {
++        return;
++    }
++    let group_is_self = state
++        .atoms
++        .id_for("WM_HINTS")
++        .and_then(|a| state.resources.window_property(window, a))
++        .filter(|v| v.data.len() >= 36)
++        .is_some_and(|v| {
++            let word = |i: usize| u32::from_le_bytes([v.data[i * 4], v.data[i * 4 + 1], v.data[i * 4 + 2], v.data[i * 4 + 3]]);
++            word(0) & (1 << 6) != 0 && word(8) == window.0
++        });
++    if !group_is_self {
++        return;
++    }
+     let Some(hwnd) = state
+         .resources
+         .window_property(window, hwnd_atom)
