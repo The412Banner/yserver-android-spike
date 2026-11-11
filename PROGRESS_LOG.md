@@ -15,6 +15,9 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 12:1x — diagnostic build green; launch checkpoint
+- CI 43059771751 green; /sdcard/Download/yserver-android-0026dbg-97dc0757 installed for ONE run (speed18 = cube ys 8 s, RUST_LOG=info,present_pace=debug), then yserver 0023 (/sdcard/Download/yserver-android-0023-3035e164) goes back.
+
 ## 2026-11-11 12:0x — debugging newest frame only (user: "debug the newest frame only issue")
 - Code read: supersede_covered_pending_presents IS called on every pixmap arrival (present_ext.rs ~2238 arm_present_pixmap_source_then_supersede). Gates: backend.present_supersedes_same_msc(), successor_msc_due == Park, same window/crtc/epoch/eff, present_supersession_covers (→ successor_presents_full_extent: update_rects None or one rect covering the source). A failing full-extent gate logs nothing.
 - Experiment build: 0024 + 0025 back in patches/ + 0026 debug (PACE-INSTR stage=supersede_off / supersede_check per candidate with due, eff, crtc, epoch, full, covers, update rects, src size). FIT stays on 0023 except for the diagnostic run.
