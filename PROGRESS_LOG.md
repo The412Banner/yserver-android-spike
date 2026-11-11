@@ -13,6 +13,13 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-10 22:2x EST — P2b on device: AHB hand-off works; Adreno blob vkCmdCopyImage allocates per call (profiled)
+- **0009 on device (yserver 47ef5361, BL c72254b5):** "goes to the host as AHardwareBuffers (1280x720, 3 buffers)", picture + colours correct, compositor HUD now shows (GPU buffers). AIO vk cube 500x500: 351 fps (was 153 CPU frames); HUD 79.8 fps on screen.
+- **0012 (copy wait ≤4 ms):** HUD 101.4 fps on screen (9.9 ms). Cube 4642/15 s (309 fps); `YSERVER_PRESENT_ASYNC=1` 4452 (no change → not the MSC wait).
+- **Loop telemetry (YSERVER_LOOP_TELEMETRY=1):** PresentPixmap (op145) ≈ 1.84 ms each, 59 % of the core thread; vk submit CPU only ~22 µs.
+- **simpleperf (unstripped b1e83a57):** 89 % kernel: `vkCmdCopyImage` (qglinternal) → `gsl_memory_alloc_pure_64` → `kgsl_ioctl_gpuobj_alloc` → shmem pages → `clear_page` (60 % inclusive); `vkFreeCommandBuffers` → `ioctl_kgsl_sharedmem_free` (26 %). I.e. the Qualcomm driver allocates (and zeroes) GPU memory inside every vkCmdCopyImage of these images, freed with the command buffer. Same would hit every game frame (3.7 MB at 1280x720).
+- **0013:** `YSERVER_COPY_BLIT=1` → engine copy + pool copy via vkCmdBlitImage, to test whether blit avoids it (else: shader copy).
+
 ## 2026-11-10 22:0x EST — P1 works on device; P2b (GPU copy into AHB pool) written; CI 42949724435 building
 - **P1 device result (BL c72254b5 + yserver 80215caa):** yserver connected to Bannerlator's compositor: root 1280x720 (= container size), Present clock 144 Hz from the compositor, Wine desktop = xdg_toplevel, keyboard focus, DRI3 AHB pixmaps imported, clipboard missing (compositor has wlr data-control, not ext). Picture correct (Wine desktop + cube). AIO vk cube 500x500 15 s: X11 2062 fps, Wayland 2677 fps, yserver 153 fps (p1b). 0 FATAL.
 - **Two limits:** (1) CPU readback into wl_shm; (2) yserver Present runs a synced present at the next host refresh (144 Hz) — Xorg semantics; the Java server ran them at once.
