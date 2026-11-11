@@ -15,6 +15,12 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 09:4x — speed job: measurement 1 + patch 0020 (CI 43037424736 building)
+- speed0 (AIO vk ys 30 s, telemetry, yserver 4e229a33): avg 2070.99, 1% low 304.03. Loop: busy ~23 %, but iter_wall_max ~10 ms EVERY second; longest request op72 (PutImage) 4-5 ms (14/s, 28 ms/s); op145 (Present) 2144/s, 192 ms/s (0.09 ms each).
+- Cause of slow PutImage: Wine's window-surface upload to the AIO window is clipped by its Vulkan child → draw.rs put_image (has_clip || children_clip) → put_image_rop_cpu → GPU readback (waits for the game's GPU work).
+- 0020 (ed3fb44): clipped Copy PutImage per run on the GPU (YSERVER_PUTIMAGE_CLIP_CPU=1 = old path); ahb.rs copy wait off by default (YSERVER_COPY_WAIT_US = old wait). Local cargo check green.
+- Launch checkpoint: AIO vk ys 30 s with YSERVER_DEBUG_SKIP_PRESENT_COPY=1 on the old binary (upper bound of removing the present copy). Restart: rootsh "sh /sdcard/Download/perf-harness/ys-aio.sh vk speed1 ys 30 'YSERVER_LOOP_TELEMETRY=1 YSERVER_DEBUG_SKIP_PRESENT_COPY=1'".
+
 ## 2026-11-11 09:3x — yserver speed job START (user: "do the yserver speed work"; feat/android-build 5341dae, yserver 4e229a33 on the FIT)
 - Why: yserver = X11 speed in games, but cube avg 2120 vs Wayland zero-copy 2776 and 1% low 323 vs X11 847.
 - Suspects (code read): rootless/ahb.rs tick waits up to COPY_WAIT_NS = 4 ms on the core thread for each window→AHB copy (all clients stall); every frame is copied twice inside yserver (Present pixmap → window backing, backing → pool AHB).
