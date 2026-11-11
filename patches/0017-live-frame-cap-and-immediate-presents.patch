@@ -1,0 +1,134 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index 8e0005b..db50886 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -730,13 +730,7 @@ pub(super) fn select_present_domain(
+ /// is held to the cap too, as Bannerlator's Java X server holds it by
+ /// delaying IdleNotify. Off: the target as computed.
+ fn frame_cap_target(window: u32, eff: u64) -> u64 {
+-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+-    if !*ON.get_or_init(|| {
+-        std::env::var("YSERVER_PRESENT_HZ")
+-            .ok()
+-            .and_then(|v| v.trim().parse::<f64>().ok())
+-            .is_some_and(|hz| hz >= 1.0)
+-    }) {
++    if crate::frame_cap::cap_mhz() == 0 {
+         return eff;
+     }
+     thread_local! {
+@@ -768,15 +762,19 @@ pub(super) fn effective_present_target_raw(
+     if domain.raw_msc == 0 {
+         return None;
+     }
+-    // YSERVER_PRESENT_ASYNC=1: a request for the next field runs now, as if
+-    // it were async (no wait for the host's refresh; the newest frame wins).
++    // YSERVER_PRESENT_ASYNC=1 (no frame cap): every present runs now, as on
++    // Bannerlator's Java X server, which ignores target_msc: no wait for a
++    // host refresh, the newest frame wins at the next host frame. A FIFO
++    // client's explicit next-MSC targets would otherwise round its frames up
++    // to refresh slots (GTA IV: 66 → 40 fps at 144 Hz).
+     static FORCE_ASYNC: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+-    let options = if *FORCE_ASYNC.get_or_init(|| {
++    let (target_msc, divisor, remainder, options) = if *FORCE_ASYNC.get_or_init(|| {
+         std::env::var_os("YSERVER_PRESENT_ASYNC").is_some_and(|v| v == "1")
+-    }) {
+-        options | crate::present_scheduler::PRESENT_OPTION_ASYNC
++    }) && crate::frame_cap::cap_mhz() == 0
++    {
++        (0, 0, 0, options | crate::present_scheduler::PRESENT_OPTION_ASYNC)
+     } else {
+-        options
++        (target_msc, divisor, remainder, options)
+     };
+     // Xorg intentionally shifts only target_msc; divisor/remainder stay in
+     // the raw CRTC clock's residue class.
+diff --git a/crates/yserver-core/src/frame_cap.rs b/crates/yserver-core/src/frame_cap.rs
+new file mode 100644
+index 0000000..3158814
+--- /dev/null
++++ b/crates/yserver-core/src/frame_cap.rs
+@@ -0,0 +1,54 @@
++//! Bannerlator: the frame cap (FPS limiter), live. `YSERVER_PRESENT_HZ` sets
++//! it at start; when `YSERVER_FPS_FILE` names a file, a thread reads it a few
++//! times a second (an integer fps, 0 = no cap) so the launcher's in-game
++//! limiter applies at once. The rootless Present clock runs at the cap, a
++//! window's presents take one MSC each, and async presents are off while it
++//! is set.
++
++use std::sync::atomic::{AtomicU64, Ordering};
++
++static CAP_MHZ: AtomicU64 = AtomicU64::new(0);
++static STARTED: std::sync::Once = std::sync::Once::new();
++
++fn parse_mhz(text: &str) -> u64 {
++    text.trim()
++        .parse::<f64>()
++        .ok()
++        .filter(|hz| *hz >= 1.0 && *hz <= 1000.0)
++        .map_or(0, |hz| (hz * 1000.0) as u64)
++}
++
++fn start() {
++    STARTED.call_once(|| {
++        if let Ok(v) = std::env::var("YSERVER_PRESENT_HZ") {
++            CAP_MHZ.store(parse_mhz(&v), Ordering::Relaxed);
++        }
++        let Some(path) = std::env::var_os("YSERVER_FPS_FILE") else {
++            return;
++        };
++        let path = std::path::PathBuf::from(path);
++        let _ = std::thread::Builder::new()
++            .name("yserver-fps-file".into())
++            .spawn(move || {
++                let mut last = None;
++                loop {
++                    let text = std::fs::read_to_string(&path).ok();
++                    if text != last {
++                        let mhz = text.as_deref().map_or(0, parse_mhz);
++                        if CAP_MHZ.swap(mhz, Ordering::Relaxed) != mhz {
++                            log::info!(target: "yserver::bannerlator", "frame cap: {} fps", mhz / 1000);
++                        }
++                        last = text;
++                    }
++                    std::thread::sleep(std::time::Duration::from_millis(200));
++                }
++            });
++    });
++}
++
++/// The cap in millihertz, 0 when off.
++#[must_use]
++pub fn cap_mhz() -> u64 {
++    start();
++    CAP_MHZ.load(Ordering::Relaxed)
++}
+diff --git a/crates/yserver-core/src/lib.rs b/crates/yserver-core/src/lib.rs
+index 189d6f1..dcc1882 100644
+--- a/crates/yserver-core/src/lib.rs
++++ b/crates/yserver-core/src/lib.rs
+@@ -1,3 +1,4 @@
++pub mod frame_cap;
+ pub mod access;
+ #[cfg(unix)]
+ pub mod anon_shm;
+diff --git a/crates/yserver/src/rootless/present_clock.rs b/crates/yserver/src/rootless/present_clock.rs
+index e6b60c0..efad623 100644
+--- a/crates/yserver/src/rootless/present_clock.rs
++++ b/crates/yserver/src/rootless/present_clock.rs
+@@ -132,14 +132,7 @@ impl PresentClock {
+ /// `YSERVER_PRESENT_HZ`: a Present clock of its own rate instead of the
+ /// host's refresh (a frame-rate cap for synced presents), 0/unset = host.
+ fn present_hz_override() -> u64 {
+-    static HZ: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+-    *HZ.get_or_init(|| {
+-        std::env::var("YSERVER_PRESENT_HZ")
+-            .ok()
+-            .and_then(|v| v.trim().parse::<f64>().ok())
+-            .filter(|hz| *hz >= 1.0 && *hz <= 1000.0)
+-            .map_or(0, |hz| (hz * 1000.0) as u64)
+-    })
++    yserver_core::frame_cap::cap_mhz()
+ }
+ 
+ /// An MSC's length in nanoseconds at `refresh_mhz` millihertz.
