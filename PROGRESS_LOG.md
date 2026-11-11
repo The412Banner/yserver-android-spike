@@ -15,6 +15,12 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:3x — speed8 result; patch 0022 + BL feat/yserver-hud-desktop building
+- speed8 (ff704741, YSERVER_TICK_TIMING=1 only, fan max): 2133.91 / 536.65; rootless_tick max ~3.5-3.8 ms, reclaim_gpu ~2.4 ms per second WITHOUT telemetry → real; 0022 adds sub-step timing.
+- 0022 (3149f72, CI 43047259660): YSERVER_HIDE_CLASS (draw ops dropped at dispatch + ShmPutImage w/o completion, black background via window_resolved_background), YSERVER-FPS once a second, finer tick timing.
+- BL feat/yserver-hud-desktop 89e78d6a (CI 43047598280): YServerComponent.setHideClass("explorer.exe") for shortcuts, FpsListener; FpsCounter.reportRate; HUD + session stats take the yserver rate in yserver mode.
+- Fan restored to AYANEO while building.
+
 ## 2026-11-11 10:1x — user "do all three" (1 remaining slow frames, 2 HUD real fps on yserver, 3 hide Wine desktop on yserver)
 - 3: BL hides explorer.exe for shortcut launches: X11 GLRenderer.setUnviewableWMClasses("explorer.exe") (XServerDisplayActivity ~12790), Wayland compositor nativeSetHideShell(true); on yserver the compositor gets one combined desktop surface, so explorer's pixels are already in it → plan: yserver drops drawing into windows whose WM_CLASS matches YSERVER_HIDE_CLASS (set by BL for shortcuts) and paints their background black.
 - 1: reclaim_gpu's per-second max is likely the render_telemetry emit itself (reclaim_retired_gpu_work calls telemetry.maybe_emit) → check with YSERVER_TICK_TIMING=1 alone.
