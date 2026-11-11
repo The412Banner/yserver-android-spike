@@ -1,0 +1,122 @@
+diff --git a/crates/yserver-render/src/kms/render/engine.rs b/crates/yserver-render/src/kms/render/engine.rs
+index 8a114b1..e617885 100644
+--- a/crates/yserver-render/src/kms/render/engine.rs
++++ b/crates/yserver-render/src/kms/render/engine.rs
+@@ -28,6 +28,7 @@
+ mod batch;
+ mod composite;
+ mod emit;
++pub use emit::copy_via_blit;
+ mod export;
+ mod fill_copy;
+ mod for_tests;
+diff --git a/crates/yserver-render/src/kms/render/engine/emit.rs b/crates/yserver-render/src/kms/render/engine/emit.rs
+index 2d75333..b0763e5 100644
+--- a/crates/yserver-render/src/kms/render/engine/emit.rs
++++ b/crates/yserver-render/src/kms/render/engine/emit.rs
+@@ -457,7 +457,7 @@ fn emit_recorded_copy_area_into_cb(
+         return Ok(());
+     }
+ 
+-    if ca.src_format != ca.dst_format {
++    if ca.src_format != ca.dst_format || copy_via_blit() {
+         emit_converting_copy_area(device, cb, ca);
+         return Ok(());
+     }
+@@ -544,6 +544,14 @@ fn emit_recorded_copy_area_into_cb(
+     Ok(())
+ }
+ 
++/// `YSERVER_COPY_BLIT=1`: disjoint copies go through `vkCmdBlitImage`
++/// (Adreno's proprietary driver allocates and clears GPU memory inside every
++/// `vkCmdCopyImage`).
++pub fn copy_via_blit() -> bool {
++    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++    *ON.get_or_init(|| std::env::var_os("YSERVER_COPY_BLIT").is_some_and(|v| v == "1"))
++}
++
+ /// Disjoint copy between the R8G8B8A8/B8G8R8A8 pair (Android AHardwareBuffer
+ /// import into a B8G8R8A8 window): same barriers as the disjoint copy, with
+ /// the BLIT stage, and a 1:1 `cmd_blit_image` that converts the format.
+diff --git a/crates/yserver/src/rootless/ahb.rs b/crates/yserver/src/rootless/ahb.rs
+index 05efc56..331923e 100644
+--- a/crates/yserver/src/rootless/ahb.rs
++++ b/crates/yserver/src/rootless/ahb.rs
+@@ -279,7 +279,11 @@ impl AhbState {
+         };
+         // SAFETY: a recording command buffer; both images are this device's.
+         unsafe {
+-            record_backing_copy(device, cb, src, src_extent, image, extent, 1, vk::ImageLayout::GENERAL);
++            if yserver_render::kms::render::engine::copy_via_blit() {
++                record_blit(device, cb, src, src_extent, image, extent);
++            } else {
++                record_backing_copy(device, cb, src, src_extent, image, extent, 1, vk::ImageLayout::GENERAL);
++            }
+         }
+         store.end_external_read(backing, vk, cb);
+         unsafe { device.end_command_buffer(cb) }
+@@ -407,6 +411,64 @@ impl AhbState {
+     }
+ }
+ 
++/// The backing (TRANSFER_SRC_OPTIMAL, as `begin_external_read` leaves it)
++/// into the pool image with a 1:1 `vkCmdBlitImage`, ending GENERAL.
++unsafe fn record_blit(
++    device: &ash::Device,
++    cb: vk::CommandBuffer,
++    src: vk::Image,
++    src_extent: vk::Extent2D,
++    image: vk::Image,
++    extent: vk::Extent2D,
++) {
++    let range = vk::ImageSubresourceRange::default()
++        .aspect_mask(vk::ImageAspectFlags::COLOR)
++        .level_count(1)
++        .layer_count(1);
++    let layers = vk::ImageSubresourceLayers::default()
++        .aspect_mask(vk::ImageAspectFlags::COLOR)
++        .layer_count(1);
++    let to_dst = [vk::ImageMemoryBarrier2::default()
++        .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
++        .dst_stage_mask(vk::PipelineStageFlags2::BLIT)
++        .dst_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
++        .old_layout(vk::ImageLayout::UNDEFINED)
++        .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
++        .image(image)
++        .subresource_range(range)];
++    let w = i32::try_from(src_extent.width.min(extent.width)).unwrap_or(0);
++    let h = i32::try_from(src_extent.height.min(extent.height)).unwrap_or(0);
++    let region = [vk::ImageBlit::default()
++        .src_subresource(layers)
++        .src_offsets([vk::Offset3D { x: 0, y: 0, z: 0 }, vk::Offset3D { x: w, y: h, z: 1 }])
++        .dst_subresource(layers)
++        .dst_offsets([vk::Offset3D { x: 0, y: 0, z: 0 }, vk::Offset3D { x: w, y: h, z: 1 }])];
++    let to_general = [vk::ImageMemoryBarrier2::default()
++        .src_stage_mask(vk::PipelineStageFlags2::BLIT)
++        .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
++        .dst_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
++        .dst_access_mask(vk::AccessFlags2::MEMORY_READ)
++        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
++        .new_layout(vk::ImageLayout::GENERAL)
++        .image(image)
++        .subresource_range(range)];
++    unsafe {
++        device.cmd_pipeline_barrier2(cb, &vk::DependencyInfo::default().image_memory_barriers(&to_dst));
++        if w > 0 && h > 0 {
++            device.cmd_blit_image(
++                cb,
++                src,
++                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
++                image,
++                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
++                &region,
++                vk::Filter::NEAREST,
++            );
++        }
++        device.cmd_pipeline_barrier2(cb, &vk::DependencyInfo::default().image_memory_barriers(&to_general));
++    }
++}
++
+ impl Drop for AhbState {
+     fn drop(&mut self) {
+         self.in_flight = None;
