@@ -15,6 +15,10 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:4x — 0022 + BL hud/desktop GREEN; yserver f9dda551 installed; launch checkpoint
+- yserver CI 43047259660 green; f9dda551 staged /sdcard/Download/yserver-android-0022-3149f72d, installed in BL files/yserver. BL CI 43047598280 green (4/4) — APK to stage, install needs the user's yes.
+- Launch checkpoint: speed9 = AIO vk ys 30 s with YSERVER_TICK_TIMING=1 YSERVER_HIDE_CLASS=explorer.exe (desktop black? YSERVER-FPS lines? sub-step maxima), fan max.
+
 ## 2026-11-11 10:3x — speed8 result; patch 0022 + BL feat/yserver-hud-desktop building
 - speed8 (ff704741, YSERVER_TICK_TIMING=1 only, fan max): 2133.91 / 536.65; rootless_tick max ~3.5-3.8 ms, reclaim_gpu ~2.4 ms per second WITHOUT telemetry → real; 0022 adds sub-step timing.
 - 0022 (3149f72, CI 43047259660): YSERVER_HIDE_CLASS (draw ops dropped at dispatch + ShmPutImage w/o completion, black background via window_resolved_background), YSERVER-FPS once a second, finer tick timing.
