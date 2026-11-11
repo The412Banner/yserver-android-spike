@@ -45,6 +45,34 @@ with its licence in `assets/yserver/LICENSE` and `NOTICE_YSERVER.txt`.
   `YSERVER-FPS window=… fps=…` once a second (the game's own frame rate, shown on Bannerlator's HUD).
   yserver's log is kept in `files/yserver/logs/`.
 
+## yserver vs Bannerlator's built-in X server
+
+In short: in games both are as fast. yserver is a complete X server running as its own process and
+showing its windows through Bannerlator's Wayland compositor; the built-in one is a small X server
+written for Wine inside the app, with Bannerlator's own renderers. yserver's advantages are protocol
+completeness, crash isolation, the compositor's display features and fewer frame copies; the built-in
+one is older, tested on many more devices, uses no extra memory and supports OpenGL through GLX.
+
+| | yserver (this build) | Bannerlator's X server (Java, in the app) |
+|---|---|---|
+| Games (Pocket FIT) | GTA IV 65.9 fps, DiRT Showdown 110–114 fps | GTA IV 66.1 fps, DiRT Showdown 114 fps |
+| AIO Vulkan cube: average / slowest 1 % | 2,051–2,194 / 554–595 fps | 2,165–2,181 / 828–847 fps |
+| Core X11 requests | all of them | 58 request types plus server grabs; the others are skipped (cleanly since 2026-11-11, before that they could desync the client or end the app) |
+| X extensions | 22, among them XKB, XFIXES, SHAPE, DAMAGE, XTEST, Composite, RENDER, SYNC, Present, DRI3, MIT-SHM (no GLX on Android) | 11: BIG-REQUESTS, MIT-SHM, DRI3, Present, SYNC, RANDR, RENDER (cursors), XInput2, Generic Event; GLX and Composite only with `BANNER_X11_GLX=1` |
+| Focus and selection (clipboard) events | yes; X's CLIPBOARD is linked to the compositor's clipboard (copy/paste not yet tested end to end) | not generated; Wine's windows are activated from Bannerlator instead |
+| A request it cannot handle | a protocol error, as the X11 spec says | skipped and logged |
+| If it crashes | only yserver ends; the app stays up | the whole app ends |
+| Where the picture goes | Bannerlator's Wayland compositor: its zero-copy display layer, Wine's desktop hidden for game shortcuts, the HUD | Bannerlator's X11 renderers (OpenGL, Vulkan, SurfaceFlinger) |
+| Frames copied when a game runs faster than the screen | one per screen refresh (newest frame only); about 20 % less GPU load in the cube | every present is handled |
+| Programs drawing into another process's window (e.g. the Windows Steam client) | shown | shown (Wine's Wayland driver cannot show them) |
+| OpenGL through GLX | no (Bannerlator's EGL route only) | yes, opt-in |
+| Memory | a separate process, about 50 MB (measured headless) | inside the app |
+| Track record | months old, tested on one device (Adreno 750) | years, in every Winlator fork |
+
+Use yserver for a game or program that needs more of the X protocol than the built-in server has, that
+should not take the app down if the X server fails, or that misbehaves on Wine's Wayland driver but should
+still get Wayland mode's display features. Everything else is as fast on the built-in X server.
+
 ## Releases
 
 | Release | Built from | Contents |
