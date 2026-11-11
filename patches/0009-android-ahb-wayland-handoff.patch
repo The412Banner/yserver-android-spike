@@ -1,0 +1,1164 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index cfe6868..c4920dd 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1600,6 +1600,7 @@ dependencies = [
+  "udev",
+  "wayland-client",
+  "wayland-protocols",
++ "wayland-scanner",
+  "windows-sys 0.61.2",
+  "xkbcommon",
+  "yserver-core",
+diff --git a/crates/yserver/Cargo.toml b/crates/yserver/Cargo.toml
+index dd7765b..9039480 100644
+--- a/crates/yserver/Cargo.toml
++++ b/crates/yserver/Cargo.toml
+@@ -66,6 +66,8 @@ udev.workspace = true
+ # `system` libwayland one), and the protocols beyond the core it speaks.
+ wayland-client = { version = "0.31.15", optional = true }
+ wayland-protocols = { version = "0.32.13", features = ["client", "staging", "unstable"], optional = true }
++# Bannerlator's banner_ahb_v1 (protocols/banner-ahb-v1.xml), generated at build time.
++wayland-scanner = { version = "0.31.11", optional = true }
+ 
+ # The AppKit window shell (`src/macos/`).
+ [target.'cfg(target_os = "macos")'.dependencies]
+@@ -114,7 +116,7 @@ xdmcp = ["tcp-transport", "yserver-core/xdmcp"]
+ # `xdg_toplevel` of the compositor `WAYLAND_DISPLAY` names, under
+ # `--rootless`. Off by default, so a build that does not ask
+ # for it pulls in no Wayland crates. Linux only.
+-wayland = ["dep:wayland-client", "dep:wayland-protocols"]
++wayland = ["dep:wayland-client", "dep:wayland-protocols", "dep:wayland-scanner"]
+ 
+ [lints]
+ workspace = true
+diff --git a/crates/yserver/protocols/banner-ahb-v1.xml b/crates/yserver/protocols/banner-ahb-v1.xml
+new file mode 100644
+index 0000000..8e802e0
+--- /dev/null
++++ b/crates/yserver/protocols/banner-ahb-v1.xml
+@@ -0,0 +1,135 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<protocol name="banner_ahb_v1">
++  <copyright>
++    Copyright 2026 The412Banner
++
++    Permission is hereby granted, free of charge, to any person obtaining a
++    copy of this software and associated documentation files (the "Software"),
++    to deal in the Software without restriction, including without limitation
++    the rights to use, copy, modify, merge, publish, distribute, sublicense,
++    and/or sell copies of the Software, and to permit persons to whom the
++    Software is furnished to do so, subject to the following conditions:
++
++    The above copyright notice and this permission notice (including the next
++    paragraph) shall be included in all copies or substantial portions of the
++    Software.
++
++    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++    DEALINGS IN THE SOFTWARE.
++  </copyright>
++
++  <interface name="banner_ahb_v1" version="3">
++    <description summary="Android gralloc buffers behind dma-buf wl_buffers">
++      Zero-copy window layers on Android. A Vulkan swapchain image that the
++      client allocated as an Android AHardwareBuffer (gralloc) is still shared
++      as a dma-buf through zwp_linux_dmabuf_v1, so the compositor can import
++      and draw it the usual way. This interface additionally hands the
++      compositor the AHardwareBuffer itself, once per wl_buffer, so the
++      compositor can put the buffer straight on an Android SurfaceControl
++      layer (SurfaceFlinger / the display hardware composite it) without
++      copying it.
++
++      The AHardwareBuffer travels over a Unix socket: the client creates a
++      socketpair, writes the buffer's handle into one end with
++      AHardwareBuffer_sendHandleToUnixSocket, then sends the other end in the
++      attach request. The compositor reads it with
++      AHardwareBuffer_recvHandleFromUnixSocket and closes the socket. Its
++      reference to the AHardwareBuffer lives as long as the wl_buffer (plus
++      whatever the display still holds).
++
++      The compositor advertises this global whenever it can put buffers on a
++      display layer at all; whether it WANTS gralloc buffers right now is the
++      mode event (version 2), sent on bind and every time the user switches
++      zero-copy on or off during the session. A client decides per swapchain,
++      when it creates the swapchain, from the last mode it received, and a
++      client whose live swapchain was built for the other mode retires it
++      (VK_ERROR_OUT_OF_DATE_KHR on its next acquire or present) so the program
++      rebuilds it for the new mode. Buffers of the old swapchain stay fully
++      presentable until then: an attached AHardwareBuffer keeps its association
++      for the wl_buffer's lifetime whatever the mode is now. A version 1
++      client (no mode event) keeps deciding from its own environment. A
++      client that does not see the global (or does not want it) allocates
++      swapchain images the standard way; nothing else changes.
++
++      Synchronisation is implicit by default: the dma-buf carries the client's
++      render fence (DMA_BUF_IOCTL_IMPORT_SYNC_FILE by the client's driver), the
++      compositor exports it as the layer's acquire fence, and the compositor
++      imports the display's release fence into the dma-buf before it sends
++      wl_buffer.release, so the client's next acquire waits on it.
++
++      Kernels without the dma-buf sync_file ioctls (ENOTTY on both) break
++      that chain: the compositor cannot export an acquire fence and the display
++      may scan out a buffer still being written. Version 3 adds the fence
++      request for exactly that case: the client hands over its render-complete
++      fence as a sync_file (the SYNC_FD export of the semaphore or fence its
++      present signals, VK_KHR_external_semaphore_fd / VK_KHR_external_fence_fd,
++      which needs no dma-buf ioctl), once per commit, and the compositor uses
++      it as the layer's acquire fence instead of exporting one. The release
++      direction is unchanged: when the import of the display's release fence
++      fails too, the compositor waits for it before wl_buffer.release.
++    </description>
++
++    <request name="destroy" type="destructor">
++      <description summary="destroy the object">
++        Buffers already attached keep their AHardwareBuffer association.
++      </description>
++    </request>
++
++    <request name="attach">
++      <description summary="hand the compositor a buffer's AHardwareBuffer">
++        Associates the AHardwareBuffer readable from socket with the
++        (already created) dma-buf wl_buffer. width, height and stride
++        (pixels) describe the gralloc allocation; modifier_hi/lo is the DRM
++        format modifier the dma-buf was shared with (the same value passed to
++        zwp_linux_buffer_params_v1.add); image_count is the number of images
++        in the swapchain this buffer belongs to (for the compositor's log).
++        Sent once per wl_buffer, before the buffer is first attached to a
++        surface.
++      </description>
++      <arg name="buffer" type="object" interface="wl_buffer" summary="the dma-buf wl_buffer"/>
++      <arg name="socket" type="fd" summary="socket the AHardwareBuffer handle was written to"/>
++      <arg name="width" type="uint" summary="buffer width in pixels"/>
++      <arg name="height" type="uint" summary="buffer height in pixels"/>
++      <arg name="stride" type="uint" summary="gralloc row stride in pixels"/>
++      <arg name="modifier_hi" type="uint" summary="high 32 bits of the DRM format modifier"/>
++      <arg name="modifier_lo" type="uint" summary="low 32 bits of the DRM format modifier"/>
++      <arg name="image_count" type="uint" summary="images in the client's swapchain"/>
++    </request>
++
++    <event name="mode" since="2">
++      <description summary="whether the compositor wants gralloc swapchain images now">
++        Sent once right after bind and again whenever the compositor's
++        zero-copy state flips (the in-game switch). enabled = 1: swapchains
++        created from now on should use gralloc AHardwareBuffers and attach
++        them; 0: standard buffers. A live swapchain built for the other value
++        should be retired by the client (out of date) so the program rebuilds
++        it; until it is, its buffers are shown as before.
++      </description>
++      <arg name="enabled" type="uint" summary="1 = gralloc swapchain images wanted, 0 = not"/>
++    </event>
++
++    <request name="fence" since="3">
++      <description summary="the client's render-complete fence for a buffer's next commit">
++        fd is a sync_file that signals when the client's rendering into buffer
++        (a wl_buffer an AHardwareBuffer was attached to) is complete; the
++        compositor owns the fd from here. Sent after the work that renders the
++        frame is submitted and before the wl_surface.commit that shows buffer;
++        it applies to that one commit. A fence sent for a buffer without an
++        attached AHardwareBuffer is closed and ignored. A second fence for the
++        same buffer before the compositor used the first replaces it. When the
++        compositor can export the fence from the dma-buf itself, a client may
++        still send one: the client's fence is preferred, as it is exactly the
++        render-complete point and not every fence the dma-buf carries. The
++        compositor never requires it: a version 3 client that sends none is
++        treated like a version 2 client.
++      </description>
++      <arg name="buffer" type="object" interface="wl_buffer" summary="the dma-buf wl_buffer the fence is for"/>
++      <arg name="fd" type="fd" summary="sync_file: signals when rendering into buffer is complete"/>
++    </request>
++  </interface>
++</protocol>
+diff --git a/crates/yserver/src/rootless/ahb.rs b/crates/yserver/src/rootless/ahb.rs
+new file mode 100644
+index 0000000..ee28394
+--- /dev/null
++++ b/crates/yserver/src/rootless/ahb.rs
+@@ -0,0 +1,414 @@
++//! Android: a window's backing reaches the host as one of a small pool of
++//! AHardwareBuffers, filled by a GPU copy (no CPU readback). The host shows
++//! the buffer (a dma-buf `wl_buffer` plus `banner_ahb_v1`) and gives it back
++//! once the window system released it (`FrameEvent::AhbReleased`).
++
++use std::{rc::Rc, sync::Arc};
++
++use ash::vk;
++use yserver_core::rootless::{Rect, ToplevelId};
++
++use super::{
++    frames::WindowFrames,
++    host::{AhbFrame, FrameSeq, RootlessHost},
++    window_swapchain::record_backing_copy,
++};
++use crate::kms::{
++    render::{
++        gpu::{FenceTicket, GpuCore},
++        store::{DrawableId, DrawableStore},
++    },
++    vk::{ahb, device::VkContext},
++};
++
++/// Buffers per window: one shown, one queued in the compositor, one filling.
++const POOL: usize = 3;
++
++const USAGE: u64 = ahb::USAGE_GPU_SAMPLED_IMAGE
++    | ahb::USAGE_GPU_FRAMEBUFFER
++    | ahb::USAGE_COMPOSER_OVERLAY
++    | ahb::USAGE_CPU_READ_RARELY;
++
++struct Slot {
++    buffer: Rc<ahb::Ahb>,
++    image: vk::Image,
++    memory: vk::DeviceMemory,
++    /// Row stride in pixels.
++    stride: u32,
++    /// The host has it (shown, queued, or being filled for it).
++    held: bool,
++}
++
++struct InFlight {
++    slot: usize,
++    seq: FrameSeq,
++    ticket: FenceTicket,
++}
++
++/// What the tick needs of the backend.
++pub(crate) struct AhbTick<'a> {
++    pub vk: &'a Arc<VkContext>,
++    pub store: &'a mut DrawableStore,
++    pub gpu: &'a GpuCore,
++}
++
++pub(crate) struct AhbState {
++    vk: Option<Arc<VkContext>>,
++    backing: Option<DrawableId>,
++    /// A frame is owed whatever the store says: a new window or generation.
++    needs_frame: bool,
++    failed: bool,
++    pool_gen: u64,
++    extent: vk::Extent2D,
++    slots: Vec<Slot>,
++    cmd_pool: vk::CommandPool,
++    cbs: Vec<vk::CommandBuffer>,
++    in_flight: Option<InFlight>,
++}
++
++impl AhbState {
++    pub(crate) fn new() -> Self {
++        Self {
++            vk: None,
++            backing: None,
++            needs_frame: true,
++            failed: false,
++            pool_gen: 0,
++            extent: vk::Extent2D::default(),
++            slots: Vec::new(),
++            cmd_pool: vk::CommandPool::null(),
++            cbs: Vec::new(),
++            in_flight: None,
++        }
++    }
++
++    pub(crate) fn backing(&self) -> Option<DrawableId> {
++        self.backing
++    }
++
++    pub(crate) fn new_generation(&mut self, backing: DrawableId) {
++        self.backing = Some(backing);
++        self.needs_frame = true;
++    }
++
++    /// The host made its window anew: every buffer is free, a frame is owed.
++    pub(crate) fn restart(&mut self) {
++        for slot in &mut self.slots {
++            slot.held = false;
++        }
++        self.needs_frame = true;
++    }
++
++    pub(crate) fn in_flight(&self) -> bool {
++        self.in_flight.is_some()
++    }
++
++    pub(crate) fn has_work(&self, store: &DrawableStore) -> bool {
++        self.needs_frame
++            || self.backing.is_some_and(|b| {
++                store
++                    .peek_presentation_damage(b)
++                    .is_some_and(|s| !s.region.is_empty())
++            })
++    }
++
++    fn free_slot(&self) -> Option<usize> {
++        if self.slots.is_empty() {
++            return Some(0);
++        }
++        self.slots.iter().position(|s| !s.held)
++    }
++
++    /// The tick would start a copy now.
++    pub(crate) fn wants_frame(&self, frames: &WindowFrames, store: &DrawableStore) -> bool {
++        !self.failed
++            && self.in_flight.is_none()
++            && self.backing.is_some()
++            && frames.can_submit()
++            && self.free_slot().is_some()
++            && self.has_work(store)
++    }
++
++    /// A buffer the host gave back.
++    pub(crate) fn on_released(&mut self, pool: u64, slot: u32) {
++        if pool != self.pool_gen {
++            return;
++        }
++        if let Some(s) = self.slots.get_mut(slot as usize) {
++            s.held = false;
++        }
++    }
++
++    /// Hand a finished copy to the host, then start the next one when one
++    /// is wanted. `true` when something moved.
++    pub(crate) fn tick(
++        &mut self,
++        id: ToplevelId,
++        depth: u8,
++        frames: &mut WindowFrames,
++        host: &mut dyn RootlessHost,
++        t: &mut AhbTick<'_>,
++    ) -> bool {
++        let mut moved = self.hand_over(id, depth, host, t.vk);
++        if !self.wants_frame(frames, t.store) {
++            return moved;
++        }
++        let Some(backing) = self.backing else {
++            return moved;
++        };
++        let Some(extent) = t.store.get(backing).map(|d| d.storage.extent) else {
++            return moved;
++        };
++        if self.slots.is_empty() || self.extent != extent {
++            if let Err(e) = self.build_pool(t.vk, extent) {
++                log::warn!("rootless: AHardwareBuffer pool for {id:?} ({}x{}): {e}", extent.width, extent.height);
++                self.failed = true;
++                return moved;
++            }
++            log::info!(
++                "rootless: {id:?} goes to the host as AHardwareBuffers ({}x{}, {} buffers, pool {})",
++                extent.width,
++                extent.height,
++                self.slots.len(),
++                self.pool_gen
++            );
++        }
++        let Some(index) = self.slots.iter().position(|s| !s.held) else {
++            return moved;
++        };
++        let snapshot = t
++            .store
++            .peek_presentation_damage(backing)
++            .filter(|s| !s.region.is_empty());
++        let vk = Arc::clone(t.vk);
++        let cb = self.cbs[index];
++        let image = self.slots[index].image;
++        if let Err(e) = Self::record(&vk, t.store, backing, cb, image, extent) {
++            log::warn!("rootless: AHardwareBuffer copy for {id:?}: {e:?}");
++            return moved;
++        }
++        let ticket = match t.gpu.acquire_fence_ticket() {
++            Ok(ticket) => ticket,
++            Err(e) => {
++                log::warn!("rootless: no fence for {id:?}: {e:?}");
++                return moved;
++            }
++        };
++        let cbs = [vk::CommandBufferSubmitInfo::default().command_buffer(cb)];
++        let submit = [vk::SubmitInfo2::default().command_buffer_infos(&cbs)];
++        // SAFETY: the queue is used from the core thread only.
++        if let Err(e) = unsafe { vk.device.queue_submit2(vk.graphics_queue, &submit, ticket.fence()) } {
++            log::warn!("rootless: AHardwareBuffer copy submit for {id:?}: {e:?}");
++            return moved;
++        }
++        t.store.touch_render_fence(backing, ticket.clone());
++        let full = Rect {
++            x: 0,
++            y: 0,
++            width: u16::try_from(extent.width).unwrap_or(u16::MAX),
++            height: u16::try_from(extent.height).unwrap_or(u16::MAX),
++        };
++        let seq = frames.submitted(vec![full], snapshot.map(|s| s.epoch));
++        self.slots[index].held = true;
++        self.needs_frame = false;
++        self.in_flight = Some(InFlight {
++            slot: index,
++            seq,
++            ticket,
++        });
++        moved = true;
++        // A small copy has often finished by now.
++        self.hand_over(id, depth, host, t.vk);
++        moved
++    }
++
++    /// The copy in flight, finished, to the host.
++    fn hand_over(&mut self, id: ToplevelId, depth: u8, host: &mut dyn RootlessHost, vk: &VkContext) -> bool {
++        let Some(f) = self.in_flight.as_ref() else {
++            return false;
++        };
++        if !f.ticket.poll_signaled(vk) {
++            return false;
++        }
++        let f = self.in_flight.take().expect("checked above");
++        let slot = &self.slots[f.slot];
++        host.submit_ahb(AhbFrame {
++            id,
++            seq: f.seq,
++            pool: self.pool_gen,
++            slot: u32::try_from(f.slot).unwrap_or(0),
++            pool_size: u32::try_from(self.slots.len()).unwrap_or(0),
++            buffer: Rc::clone(&slot.buffer),
++            width: self.extent.width,
++            height: self.extent.height,
++            stride: slot.stride,
++            depth,
++        });
++        true
++    }
++
++    fn record(
++        vk: &VkContext,
++        store: &mut DrawableStore,
++        backing: DrawableId,
++        cb: vk::CommandBuffer,
++        image: vk::Image,
++        extent: vk::Extent2D,
++    ) -> Result<(), vk::Result> {
++        let device = &vk.device;
++        unsafe {
++            device.reset_command_buffer(cb, vk::CommandBufferResetFlags::empty())?;
++            device.begin_command_buffer(
++                cb,
++                &vk::CommandBufferBeginInfo::default()
++                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
++            )?;
++        }
++        let Some((src, src_extent)) = store.begin_external_read(backing, vk, cb) else {
++            unsafe { device.end_command_buffer(cb) }?;
++            return Err(vk::Result::ERROR_UNKNOWN);
++        };
++        // SAFETY: a recording command buffer; both images are this device's.
++        unsafe {
++            record_backing_copy(device, cb, src, src_extent, image, extent, 1, vk::ImageLayout::GENERAL);
++        }
++        store.end_external_read(backing, vk, cb);
++        unsafe { device.end_command_buffer(cb) }
++    }
++
++    /// A pool at `extent`; the old one goes once the GPU is done with it
++    /// (the compositor holds its own references to what it shows).
++    fn build_pool(&mut self, vk: &Arc<VkContext>, extent: vk::Extent2D) -> Result<(), String> {
++        self.destroy_slots();
++        let Some(ext) = vk.ahb.as_ref() else {
++            return Err("no VK_ANDROID_external_memory_android_hardware_buffer".into());
++        };
++        if self.cmd_pool == vk::CommandPool::null() {
++            let info = vk::CommandPoolCreateInfo::default()
++                .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
++                .queue_family_index(vk.graphics_queue_family);
++            self.cmd_pool = unsafe { vk.device.create_command_pool(&info, None) }
++                .map_err(|e| format!("command pool: {e:?}"))?;
++            let alloc = vk::CommandBufferAllocateInfo::default()
++                .command_pool(self.cmd_pool)
++                .level(vk::CommandBufferLevel::PRIMARY)
++                .command_buffer_count(u32::try_from(POOL).unwrap_or(3));
++            self.cbs = unsafe { vk.device.allocate_command_buffers(&alloc) }
++                .map_err(|e| format!("command buffers: {e:?}"))?;
++        }
++        self.vk = Some(Arc::clone(vk));
++        let mem_props = unsafe { vk.instance.get_physical_device_memory_properties(vk.physical_device) };
++        for _ in 0..POOL {
++            let buffer = ahb::allocate(extent.width, extent.height, ahb::FORMAT_B8G8R8A8, USAGE)
++                .map_err(|e| format!("AHardwareBuffer_allocate: {e}"))?;
++            let desc = buffer.describe();
++            let mut format_props = vk::AndroidHardwareBufferFormatPropertiesANDROID::default();
++            let (allocation_size, memory_type_bits) = {
++                let mut props =
++                    vk::AndroidHardwareBufferPropertiesANDROID::default().push_next(&mut format_props);
++                unsafe { ext.get_android_hardware_buffer_properties(buffer.as_ptr().cast_const(), &mut props) }
++                    .map_err(|e| format!("buffer properties: {e:?}"))?;
++                (props.allocation_size, props.memory_type_bits)
++            };
++            let format = format_props.format;
++            if format == vk::Format::UNDEFINED {
++                return Err("the buffer has no Vulkan format".into());
++            }
++            let mut external = vk::ExternalMemoryImageCreateInfo::default()
++                .handle_types(vk::ExternalMemoryHandleTypeFlags::ANDROID_HARDWARE_BUFFER_ANDROID);
++            let image_info = vk::ImageCreateInfo::default()
++                .image_type(vk::ImageType::TYPE_2D)
++                .format(format)
++                .extent(vk::Extent3D {
++                    width: extent.width,
++                    height: extent.height,
++                    depth: 1,
++                })
++                .mip_levels(1)
++                .array_layers(1)
++                .samples(vk::SampleCountFlags::TYPE_1)
++                .tiling(vk::ImageTiling::OPTIMAL)
++                .usage(
++                    vk::ImageUsageFlags::TRANSFER_DST
++                        | vk::ImageUsageFlags::SAMPLED
++                        | vk::ImageUsageFlags::COLOR_ATTACHMENT,
++                )
++                .sharing_mode(vk::SharingMode::EXCLUSIVE)
++                .initial_layout(vk::ImageLayout::UNDEFINED)
++                .push_next(&mut external);
++            let image = unsafe { vk.device.create_image(&image_info, None) }
++                .map_err(|e| format!("image: {e:?}"))?;
++            let Some(type_index) = (0..mem_props.memory_type_count)
++                .find(|i| memory_type_bits & (1 << i) != 0)
++            else {
++                unsafe { vk.device.destroy_image(image, None) };
++                return Err("no memory type".into());
++            };
++            let mut import = vk::ImportAndroidHardwareBufferInfoANDROID::default().buffer(buffer.as_ptr());
++            let mut dedicated = vk::MemoryDedicatedAllocateInfo::default().image(image);
++            let alloc = vk::MemoryAllocateInfo::default()
++                .allocation_size(allocation_size)
++                .memory_type_index(type_index)
++                .push_next(&mut import)
++                .push_next(&mut dedicated);
++            let memory = match unsafe { vk.device.allocate_memory(&alloc, None) } {
++                Ok(m) => m,
++                Err(e) => {
++                    unsafe { vk.device.destroy_image(image, None) };
++                    return Err(format!("import: {e:?}"));
++                }
++            };
++            if let Err(e) = unsafe { vk.device.bind_image_memory(image, memory, 0) } {
++                unsafe {
++                    vk.device.free_memory(memory, None);
++                    vk.device.destroy_image(image, None);
++                }
++                return Err(format!("bind: {e:?}"));
++            }
++            self.slots.push(Slot {
++                buffer: Rc::new(buffer),
++                image,
++                memory,
++                stride: if desc.stride != 0 { desc.stride } else { extent.width },
++                held: false,
++            });
++        }
++        self.pool_gen += 1;
++        self.extent = extent;
++        Ok(())
++    }
++
++    /// The GPU must be done with every slot (no copy in flight).
++    fn destroy_slots(&mut self) {
++        if self.slots.is_empty() {
++            return;
++        }
++        let Some(vk) = self.vk.as_ref() else {
++            self.slots.clear();
++            return;
++        };
++        // SAFETY: the queue is used from the core thread only.
++        let _ = unsafe { vk.device.queue_wait_idle(vk.graphics_queue) };
++        for slot in self.slots.drain(..) {
++            unsafe {
++                vk.device.destroy_image(slot.image, None);
++                vk.device.free_memory(slot.memory, None);
++            }
++        }
++    }
++}
++
++impl Drop for AhbState {
++    fn drop(&mut self) {
++        self.in_flight = None;
++        self.destroy_slots();
++        if let Some(vk) = self.vk.as_ref()
++            && self.cmd_pool != vk::CommandPool::null()
++        {
++            unsafe {
++                let _ = vk.device.queue_wait_idle(vk.graphics_queue);
++                vk.device.destroy_command_pool(self.cmd_pool, None);
++            }
++        }
++    }
++}
+diff --git a/crates/yserver/src/rootless/display.rs b/crates/yserver/src/rootless/display.rs
+index 26e7745..9be924d 100644
+--- a/crates/yserver/src/rootless/display.rs
++++ b/crates/yserver/src/rootless/display.rs
+@@ -218,6 +218,11 @@ impl RootlessHost for PresenterHandle {
+         self.0.borrow_mut().submit_dmabuf(frame);
+     }
+ 
++    #[cfg(target_os = "android")]
++    fn submit_ahb(&mut self, frame: super::host::AhbFrame) {
++        self.0.borrow_mut().submit_ahb(frame);
++    }
++
+     fn first_frame(&mut self, id: ToplevelId) {
+         self.0.borrow_mut().first_frame(id);
+     }
+diff --git a/crates/yserver/src/rootless/host.rs b/crates/yserver/src/rootless/host.rs
+index 6ad2aff..c6343d5 100644
+--- a/crates/yserver/src/rootless/host.rs
++++ b/crates/yserver/src/rootless/host.rs
+@@ -24,6 +24,31 @@ pub(crate) enum HandoffKind {
+     Dmabuf,
+     /// Bytes.
+     Cpu,
++    /// Android: the presenter copies the backing into a pool of
++    /// AHardwareBuffers on the GPU and hands each over ([`AhbFrame`]).
++    #[cfg(target_os = "android")]
++    Ahb,
++}
++
++/// Android: one of a window's pool buffers, holding the backing at `seq`
++/// (the GPU copy has finished). The host shows it and answers
++/// [`FrameEvent::AhbReleased`] once the window system gave it back.
++#[cfg(target_os = "android")]
++pub(crate) struct AhbFrame {
++    pub id: ToplevelId,
++    pub seq: FrameSeq,
++    /// The pool's generation; a new one replaces every buffer of the old.
++    pub pool: u64,
++    pub slot: u32,
++    /// Buffers in the pool.
++    pub pool_size: u32,
++    pub buffer: std::rc::Rc<crate::kms::vk::ahb::Ahb>,
++    pub width: u32,
++    pub height: u32,
++    /// Row stride in pixels.
++    pub stride: u32,
++    /// 24: alpha undefined; 32: premultiplied ARGB.
++    pub depth: u8,
+ }
+ 
+ /// An owned CPU frame; every byte equals the canonical image at `seq`
+@@ -84,6 +109,9 @@ pub(crate) enum FrameEvent {
+         seq: FrameSeq,
+         pixels: Vec<u8>,
+     },
++    /// Android: a pool buffer is free again.
++    #[cfg(target_os = "android")]
++    AhbReleased { id: ToplevelId, pool: u64, slot: u32 },
+ }
+ 
+ /// A native window system's side of rootless mode (spec §4.5), driven on the
+@@ -98,6 +126,12 @@ pub(crate) trait RootlessHost {
+     fn submit_dmabuf(&mut self, frame: DmabufFrame) {
+         drop(frame);
+     }
++    /// Android: show a pool buffer. A host that cannot answers `Dropped`
++    /// and `AhbReleased` for it.
++    #[cfg(target_os = "android")]
++    fn submit_ahb(&mut self, frame: AhbFrame) {
++        drop(frame);
++    }
+     /// The first frame was delivered (GPU: presented): make the window visible.
+     fn first_frame(&mut self, id: ToplevelId);
+     /// Lifecycle, after the presenter applied the batch.
+diff --git a/crates/yserver/src/rootless/mod.rs b/crates/yserver/src/rootless/mod.rs
+index 1e13f41..377155d 100644
+--- a/crates/yserver/src/rootless/mod.rs
++++ b/crates/yserver/src/rootless/mod.rs
+@@ -7,6 +7,8 @@
+ // Nothing outside tests starts the presenter until RL2 (macOS).
+ #![cfg_attr(not(test), allow(dead_code))]
+ 
++#[cfg(target_os = "android")]
++mod ahb;
+ mod cpu;
+ #[cfg(kms)]
+ pub(crate) mod display;
+@@ -45,6 +47,8 @@ use crate::{
+ pub(crate) enum Path {
+     Cpu(CpuState),
+     Gpu(Box<GpuState>),
++    #[cfg(target_os = "android")]
++    Ahb(Box<ahb::AhbState>),
+ }
+ 
+ /// One mapped top-level the presenter delivers.
+@@ -141,6 +145,8 @@ impl Presenter {
+                         }
+                         HandoffKind::Cpu => Path::Cpu(CpuState::new()),
+                         HandoffKind::VulkanSurface => Path::Gpu(Box::new(GpuState::new())),
++                        #[cfg(target_os = "android")]
++                        HandoffKind::Ahb => Path::Ahb(Box::new(ahb::AhbState::new())),
+                     };
+                     self.windows.insert(
+                         *id,
+@@ -162,6 +168,9 @@ impl Presenter {
+                             // Never destroyed in place; the host frees its
+                             // native window at `surface_released`.
+                             Path::Gpu(gpu) => self.retiring.extend((*gpu).retire(*id)),
++                            // Drop waits for the GPU, then frees the pool.
++                            #[cfg(target_os = "android")]
++                            Path::Ahb(a) => drop(a),
+                         }
+                         self.note(Note::Removed(*id));
+                     }
+@@ -197,6 +206,10 @@ impl Presenter {
+                         if let Path::Cpu(cpu) = &mut w.path {
+                             cpu.restart();
+                         }
++                        #[cfg(target_os = "android")]
++                        if let Path::Ahb(a) = &mut w.path {
++                            a.restart();
++                        }
+                         w.wanted = false;
+                         w.host_event();
+                     }
+@@ -209,6 +222,10 @@ impl Presenter {
+                     if let Path::Cpu(cpu) = &w.path {
+                         cpu::ack(store, cpu.backing(), delivery.ack_epoch);
+                     }
++                    #[cfg(target_os = "android")]
++                    if let Path::Ahb(a) = &w.path {
++                        cpu::ack(store, a.backing(), delivery.ack_epoch);
++                    }
+                     if delivery.first {
+                         self.host.first_frame(id);
+                     }
+@@ -221,6 +238,15 @@ impl Presenter {
+                         }
+                     }
+                 }
++                #[cfg(target_os = "android")]
++                FrameEvent::AhbReleased { id, pool, slot } => {
++                    if let Some(Presented {
++                        path: Path::Ahb(a), ..
++                    }) = self.windows.get_mut(&id)
++                    {
++                        a.on_released(pool, slot);
++                    }
++                }
+                 FrameEvent::Released { id, seq, pixels } => {
+                     if let Some(Presented {
+                         path: Path::Cpu(cpu),
+@@ -267,6 +293,8 @@ impl Presenter {
+                 match &mut w.path {
+                     Path::Cpu(cpu) => cpu.new_generation(backing),
+                     Path::Gpu(gpu) => gpu.new_generation(backing),
++                    #[cfg(target_os = "android")]
++                    Path::Ahb(a) => a.new_generation(backing),
+                 }
+             }
+             if w.frames.readiness() != Readiness::Busy {
+@@ -306,6 +334,18 @@ impl Presenter {
+                     }
+                     gpu.has_work(&b.store)
+                 }
++                #[cfg(target_os = "android")]
++                Path::Ahb(a) => {
++                    let mut t = ahb::AhbTick {
++                        vk: &vk,
++                        store: &mut b.store,
++                        gpu: b.platform.gpu(),
++                    };
++                    if a.tick(*id, w.depth, &mut w.frames, self.host.as_mut(), &mut t) {
++                        self.progress += 1;
++                    }
++                    a.has_work(&b.store)
++                }
+             };
+             if w.frames.readiness() == Readiness::Busy && !w.wanted && has_work {
+                 w.wanted = true;
+@@ -345,6 +385,8 @@ impl Presenter {
+                     }
+                     (gpu.wants_frame(&w.frames, store, now), false)
+                 }
++                #[cfg(target_os = "android")]
++                Path::Ahb(a) => (a.wants_frame(&w.frames, store), a.in_flight()),
+             };
+             if wants {
+                 return Some(now);
+diff --git a/crates/yserver/src/wayland/client.rs b/crates/yserver/src/wayland/client.rs
+index c30d733..caab765 100644
+--- a/crates/yserver/src/wayland/client.rs
++++ b/crates/yserver/src/wayland/client.rs
+@@ -62,6 +62,10 @@ use wayland_protocols::{
+             zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1,
+             zwp_relative_pointer_v1::{self, ZwpRelativePointerV1},
+         },
++        linux_dmabuf::zv1::client::{
++            zwp_linux_buffer_params_v1::{self, ZwpLinuxBufferParamsV1},
++            zwp_linux_dmabuf_v1::{self, ZwpLinuxDmabufV1},
++        },
+     },
+     xdg::{
+         shell::client::{
+@@ -88,6 +92,38 @@ const WM_BASE: u32 = 3;
+ const OUTPUT: u32 = 4;
+ const XDG_OUTPUT: u32 = 3;
+ 
++/// Bannerlator's `banner_ahb_v1`: hand the compositor a dma-buf buffer's
++/// AHardwareBuffer so it can put it on a display layer without a copy.
++#[allow(
++    dead_code,
++    non_camel_case_types,
++    unused_unsafe,
++    unused_variables,
++    non_upper_case_globals,
++    non_snake_case,
++    unused_imports,
++    missing_docs,
++    clippy::all,
++    clippy::pedantic
++)]
++pub(super) mod banner {
++    use wayland_client;
++    use wayland_client::backend as wayland_backend;
++    use wayland_client::protocol::*;
++    pub mod __interfaces {
++        use wayland_client::backend as wayland_backend;
++        use wayland_client::protocol::__interfaces::*;
++        wayland_scanner::generate_interfaces!("protocols/banner-ahb-v1.xml");
++    }
++    use self::__interfaces::*;
++    wayland_scanner::generate_client_code!("protocols/banner-ahb-v1.xml");
++}
++use banner::banner_ahb_v1::{self, BannerAhbV1};
++
++/// `DRM_FORMAT_XRGB8888` / `DRM_FORMAT_ARGB8888`: B, G, R, X/A in memory.
++const DRM_XRGB8888: u32 = u32::from_le_bytes(*b"XR24");
++const DRM_ARGB8888: u32 = u32::from_le_bytes(*b"AR24");
++
+ /// `wl_shm`'s formats the host draws in.
+ const ARGB8888: wl_shm::Format = wl_shm::Format::Argb8888;
+ const XRGB8888: wl_shm::Format = wl_shm::Format::Xrgb8888;
+@@ -280,6 +316,12 @@ pub(super) enum Event {
+         locked: bool,
+     },
+     Clipboard(ClipboardEvent),
++    /// A pool buffer of a window's is free again (`wl_buffer.release`).
++    AhbReleased {
++        surface: SurfaceId,
++        pool: u64,
++        slot: u32,
++    },
+ }
+ 
+ /// What a `wl_surface` of the host's is.
+@@ -295,6 +337,12 @@ enum BufferData {
+     /// One of a window's `wl_shm` buffers.
+     Window(SurfaceId),
+     Cursor,
++    /// One of a window's AHardwareBuffer pool buffers (dma-buf).
++    Ahb {
++        surface: SurfaceId,
++        pool: u64,
++        slot: u32,
++    },
+ }
+ 
+ /// Memory shared with the compositor: a memfd, mapped.
+@@ -478,6 +526,8 @@ struct Surface {
+     role: Role,
+     configured: Option<(u32, u32)>,
+     slots: Vec<Slot>,
++    /// Pool buffers made for this surface: (pool, slot, buffer).
++    ahb: Vec<(u64, u32, WlBuffer)>,
+ }
+ 
+ /// A cursor the host drew: a surface of the seat's own and the one buffer
+@@ -584,6 +634,8 @@ pub(super) struct State {
+     globals: Vec<Global>,
+     compositor: Option<WlCompositor>,
+     shm: Option<WlShm>,
++    dmabuf: Option<ZwpLinuxDmabufV1>,
++    banner_ahb: Option<BannerAhbV1>,
+     wm_base: Option<XdgWmBase>,
+     cursor_shape: Option<WpCursorShapeManagerV1>,
+     xdg_outputs: Option<ZxdgOutputManagerV1>,
+@@ -834,6 +886,7 @@ impl Client {
+                 },
+                 configured: None,
+                 slots: Vec::new(),
++                ahb: Vec::new(),
+             },
+         );
+         Ok(id)
+@@ -887,6 +940,7 @@ impl Client {
+                 },
+                 configured: None,
+                 slots: Vec::new(),
++                ahb: Vec::new(),
+             },
+         );
+         Ok(())
+@@ -1015,6 +1069,9 @@ impl Client {
+         for slot in state.slots {
+             slot.destroy();
+         }
++        for (_, _, buffer) in state.ahb {
++            buffer.destroy();
++        }
+         state.surface.destroy();
+         if self.state.seat.pointer_focus == Some(surface) {
+             self.state.seat.pointer_focus = None;
+@@ -1114,6 +1171,86 @@ impl Client {
+ 
+     /// Ask for an [`Event::Frame`] when the compositor next wants a frame
+     /// of the surface, and commit what was attached with it.
++    /// The compositor takes AHardwareBuffers: `zwp_linux_dmabuf_v1` and
++    /// `banner_ahb_v1` both.
++    pub(super) fn takes_ahb(&self) -> bool {
++        self.state.dmabuf.is_some() && self.state.banner_ahb.is_some()
++    }
++
++    /// Attach pool buffer `slot` of `pool` (made on first use: a dma-buf
++    /// `wl_buffer` of the AHardwareBuffer's fd, and the buffer itself handed
++    /// over with `banner_ahb_v1.attach`), damaged whole. Buffers of older
++    /// pools go. [`Client::commit_frame`] shows it. `Ok(false)` before the
++    /// first configure.
++    ///
++    /// # Errors
++    ///
++    /// No dma-buf global, a buffer with no fd, or a socket that cannot be made.
++    #[cfg(target_os = "android")]
++    #[allow(clippy::too_many_arguments)]
++    pub(super) fn attach_ahb(
++        &mut self,
++        surface: SurfaceId,
++        pool: u64,
++        slot: u32,
++        pool_size: u32,
++        buffer: &crate::kms::vk::ahb::Ahb,
++        (width, height, stride): (u32, u32, u32),
++        opaque: bool,
++    ) -> io::Result<bool> {
++        let (Some(dmabuf), Some(banner_ahb)) = (self.state.dmabuf.as_ref(), self.state.banner_ahb.as_ref()) else {
++            return Err(io::Error::other("the compositor takes no AHardwareBuffers"));
++        };
++        let Some(state) = self
++            .state
++            .surfaces
++            .get_mut(&surface)
++            .filter(|state| state.configured.is_some())
++        else {
++            return Ok(false);
++        };
++        // Buffers of an older pool go.
++        state.ahb.retain(|(p, _, b)| {
++            if *p == pool {
++                true
++            } else {
++                b.destroy();
++                false
++            }
++        });
++        if !state.ahb.iter().any(|(p, s, _)| *p == pool && *s == slot) {
++            let fd = buffer
++                .dmabuf_fd()
++                .ok_or_else(|| io::Error::other("the AHardwareBuffer has no dma-buf fd"))?;
++            let params = dmabuf.create_params(&self.qh, ());
++            params.add(fd, 0, 0, stride * 4, 0, 0);
++            let wl = params.create_immed(
++                i32::try_from(width).unwrap_or(i32::MAX),
++                i32::try_from(height).unwrap_or(i32::MAX),
++                if opaque { DRM_XRGB8888 } else { DRM_ARGB8888 },
++                zwp_linux_buffer_params_v1::Flags::empty(),
++                &self.qh,
++                BufferData::Ahb { surface, pool, slot },
++            );
++            params.destroy();
++            let (ours, theirs) = nix::sys::socket::socketpair(
++                nix::sys::socket::AddressFamily::Unix,
++                nix::sys::socket::SockType::Stream,
++                None,
++                nix::sys::socket::SockFlag::SOCK_CLOEXEC,
++            )?;
++            buffer.send_to_socket(ours.as_fd())?;
++            banner_ahb.attach(&wl, theirs.as_fd(), width, height, stride, 0, 0, pool_size);
++            state.ahb.push((pool, slot, wl));
++        }
++        let Some((_, _, wl)) = state.ahb.iter().find(|(p, s, _)| *p == pool && *s == slot) else {
++            return Ok(false);
++        };
++        state.surface.attach(Some(wl), 0, 0);
++        damage_buffer(&state.surface, (0, 0, width, height));
++        Ok(true)
++    }
++
+     pub(super) fn commit_frame(&self, surface: SurfaceId) {
+         let Some(state) = self.state.surfaces.get(&surface) else {
+             return;
+@@ -1531,6 +1668,12 @@ impl Dispatch<WlRegistry, ()> for State {
+                     "wl_shm" if state.shm.is_none() => {
+                         state.shm = Some(registry.bind(name, 1, qh, ()));
+                     }
++                    "zwp_linux_dmabuf_v1" if state.dmabuf.is_none() && version >= 2 => {
++                        state.dmabuf = Some(registry.bind(name, version.min(3), qh, ()));
++                    }
++                    "banner_ahb_v1" if state.banner_ahb.is_none() => {
++                        state.banner_ahb = Some(registry.bind(name, version.min(2), qh, ()));
++                    }
+                     "wl_seat" if state.seat.seat.is_none() => {
+                         state.seat.seat = Some(registry.bind(name, version.min(SEAT), qh, ()));
+                     }
+@@ -1981,6 +2124,47 @@ impl Dispatch<WlCallback, SurfaceId> for State {
+     }
+ }
+ 
++impl Dispatch<ZwpLinuxDmabufV1, ()> for State {
++    fn event(
++        _: &mut Self,
++        _: &ZwpLinuxDmabufV1,
++        _: zwp_linux_dmabuf_v1::Event,
++        (): &(),
++        _: &Connection,
++        _: &QueueHandle<Self>,
++    ) {
++    }
++}
++
++impl Dispatch<ZwpLinuxBufferParamsV1, ()> for State {
++    fn event(
++        _: &mut Self,
++        _: &ZwpLinuxBufferParamsV1,
++        event: zwp_linux_buffer_params_v1::Event,
++        (): &(),
++        _: &Connection,
++        _: &QueueHandle<Self>,
++    ) {
++        if let zwp_linux_buffer_params_v1::Event::Failed = event {
++            log::warn!("wayland: the compositor refused a dma-buf buffer");
++        }
++    }
++}
++
++impl Dispatch<BannerAhbV1, ()> for State {
++    fn event(
++        _: &mut Self,
++        _: &BannerAhbV1,
++        event: banner_ahb_v1::Event,
++        (): &(),
++        _: &Connection,
++        _: &QueueHandle<Self>,
++    ) {
++        let banner_ahb_v1::Event::Mode { enabled } = event;
++        log::info!("wayland: the compositor's zero-copy layers are {}", if enabled != 0 { "on" } else { "off" });
++    }
++}
++
+ impl Dispatch<WlBuffer, BufferData> for State {
+     fn event(
+         state: &mut Self,
+@@ -2004,6 +2188,15 @@ impl Dispatch<WlBuffer, BufferData> for State {
+                 }
+             }
+             BufferData::Cursor => {}
++            BufferData::Ahb {
++                surface,
++                pool,
++                slot,
++            } => state.pending.push(Event::AhbReleased {
++                surface,
++                pool,
++                slot,
++            }),
+         }
+     }
+ }
+diff --git a/crates/yserver/src/wayland/mod.rs b/crates/yserver/src/wayland/mod.rs
+index aef0608..e6417ec 100644
+--- a/crates/yserver/src/wayland/mod.rs
++++ b/crates/yserver/src/wayland/mod.rs
+@@ -228,6 +228,18 @@ impl WaylandHost {
+                     self.work.frame(FrameEvent::Ready { id });
+                 }
+             }
++            Event::AhbReleased {
++                surface,
++                pool,
++                slot,
++            } => {
++                #[cfg(target_os = "android")]
++                if let Some(id) = self.id_of(surface) {
++                    self.work.frame(FrameEvent::AhbReleased { id, pool, slot });
++                }
++                #[cfg(not(target_os = "android"))]
++                let _ = (surface, pool, slot);
++            }
+             Event::Configure {
+                 surface,
+                 width,
+@@ -638,9 +650,66 @@ fn activation_granted(request: WmRequest, keyboard_on: Option<ToplevelId>, id: T
+ 
+ impl RootlessHost for WaylandHost {
+     fn handoff(&self, _id: ToplevelId, _depth: u8) -> HandoffKind {
++        // Android: GPU-filled AHardwareBuffers when the compositor takes them
++        // (Bannerlator's), unless YSERVER_WAYLAND_CPU=1 asks for CPU frames.
++        #[cfg(target_os = "android")]
++        if self.client.takes_ahb() && std::env::var_os("YSERVER_WAYLAND_CPU").is_none_or(|v| v != "1") {
++            return HandoffKind::Ahb;
++        }
+         HandoffKind::Cpu
+     }
+ 
++    #[cfg(target_os = "android")]
++    fn submit_ahb(&mut self, frame: crate::rootless::host::AhbFrame) {
++        let crate::rootless::host::AhbFrame {
++            id,
++            seq,
++            pool,
++            slot,
++            pool_size,
++            buffer,
++            width,
++            height,
++            stride,
++            depth,
++        } = frame;
++        let shown = self.windows.get(&id).filter(|win| win.configured);
++        let surface = shown.and_then(|win| win.surface);
++        let delivered = surface.is_some_and(|surface| {
++            match self.client.attach_ahb(
++                surface,
++                pool,
++                slot,
++                pool_size,
++                &buffer,
++                (width, height, stride),
++                depth != 32,
++            ) {
++                Ok(true) => {
++                    self.client.commit_frame(surface);
++                    true
++                }
++                Ok(false) => false,
++                Err(error) => {
++                    log::warn!("wayland: AHardwareBuffer for {id:?}: {error}");
++                    false
++                }
++            }
++        });
++        let work = &mut self.work;
++        if delivered {
++            work.frame(FrameEvent::Delivered { id, seq });
++        } else {
++            work.frame(FrameEvent::Dropped { id, seq });
++            work.frame(FrameEvent::AhbReleased { id, pool, slot });
++            if surface.is_some()
++                && let Some(win) = self.windows.get_mut(&id)
++            {
++                win.redraw_at = Some(Instant::now() + REFUSED_RETRY);
++            }
++        }
++    }
++
+     fn create_surface(
+         &mut self,
+         _id: ToplevelId,
