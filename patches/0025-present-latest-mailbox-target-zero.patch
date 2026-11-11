@@ -1,0 +1,44 @@
+diff --git a/crates/yserver-core/src/bannerlator.rs b/crates/yserver-core/src/bannerlator.rs
+index 3a9fac8..df08620 100644
+--- a/crates/yserver-core/src/bannerlator.rs
++++ b/crates/yserver-core/src/bannerlator.rs
+@@ -34,11 +34,12 @@ fn hide_classes() -> &'static [String] {
+ }
+ 
+ /// "Newest frame only" (`YSERVER_PRESENT_LATEST`, on unless `0`): with
+-/// `YSERVER_PRESENT_ASYNC=1`, a present the client marks async waits for the
+-/// next host frame instead of running at once, and a newer one for the same
+-/// window replaces it (supersession: the replaced buffer goes back idle,
+-/// uncopied). The window then takes one copy per host frame instead of one per
+-/// game frame. Presents without the async option still run at once.
++/// `YSERVER_PRESENT_ASYNC=1`, a present that asks for no particular frame
++/// (async option, or target 0 as Vulkan MAILBOX sends) waits for the next host
++/// frame instead of running at once, and a newer one for the same window
++/// replaces it (supersession: the replaced buffer goes back idle, uncopied).
++/// The window then takes one copy per host frame instead of one per game
++/// frame. Presents with an explicit target (FIFO) still run at once.
+ pub fn present_latest() -> bool {
+     static ON: OnceLock<bool> = OnceLock::new();
+     *ON.get_or_init(|| std::env::var("YSERVER_PRESENT_LATEST").map_or(true, |v| v != "0"))
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index ace4ad9..f3f9bc6 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -780,10 +780,14 @@ pub(super) fn effective_present_target_raw(
+     }) && crate::frame_cap::cap_mhz() == 0;
+     let (target_msc, divisor, remainder, options) = if force_async
+         && crate::bannerlator::present_latest()
+-        && options & crate::present_scheduler::PRESENT_ALL_ASYNC_OPTIONS != 0
++        && (options & crate::present_scheduler::PRESENT_ALL_ASYNC_OPTIONS != 0
++            || (target_msc == 0 && divisor == 0))
+     {
+-        // Newest frame only: an async present waits for the next host frame
+-        // and a newer one replaces it (crate::bannerlator::present_latest).
++        // Newest frame only: a present that asks for no particular frame
++        // (async: Vulkan IMMEDIATE/FIFO_RELAXED; target 0: MAILBOX) waits for
++        // the next host frame and a newer one replaces it
++        // (crate::bannerlator::present_latest). FIFO's explicit targets still
++        // run at once below.
+         (0, 0, 0, options & !crate::present_scheduler::PRESENT_ALL_ASYNC_OPTIONS)
+     } else if force_async {
+         (0, 0, 0, options | crate::present_scheduler::PRESENT_OPTION_ASYNC)

@@ -15,6 +15,10 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 11:3x — 0024 did not engage; 0025
+- speed13 (0024 on): 2095.11 / 499.92; speed14 (YSERVER_PRESENT_LATEST=0): 2211.88 / 572.05 — present_skips/s=0 in speed13 → no supersession happened; the difference is run-to-run spread. Cause: the BL Vulkan wrapper WSI (wsi_common_x11.c:1446) sets PRESENT_OPTION_ASYNC only for IMMEDIATE/FIFO_RELAXED; MAILBOX sends no option and target 0 (FIFO: last_present_msc + 1 when has_acquire_queue).
+- 0025: newest frame only also for target 0 / divisor 0 (MAILBOX). FIFO explicit targets unchanged.
+
 ## 2026-11-11 11:2x — 0024 GREEN + installed; launch checkpoint (A/B block)
 - CI 43053847417 green; yserver staged /sdcard/Download/yserver-android-0024-221d69d6, installed in BL files/yserver (BL 89e78d6a = main bd3bd1be code; main CI 43053098056 green 4/4).
 - Launch checkpoint: speed13 = cube ys 30 s (0024 default on), speed14 = same with YSERVER_PRESENT_LATEST=0, then GTA IV + DiRT on 0024 (ys-game speedg4). Fan max for the block, restore after.
