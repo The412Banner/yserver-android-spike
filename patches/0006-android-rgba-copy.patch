@@ -1,0 +1,158 @@
+diff --git a/crates/yserver-render/src/kms/render/engine/emit.rs b/crates/yserver-render/src/kms/render/engine/emit.rs
+index b44a4de..2d75333 100644
+--- a/crates/yserver-render/src/kms/render/engine/emit.rs
++++ b/crates/yserver-render/src/kms/render/engine/emit.rs
+@@ -457,6 +457,11 @@ fn emit_recorded_copy_area_into_cb(
+         return Ok(());
+     }
+ 
++    if ca.src_format != ca.dst_format {
++        emit_converting_copy_area(device, cb, ca);
++        return Ok(());
++    }
++
+     // Disjoint case: two-barrier pre-sequence + copy + two-barrier post-sequence.
+     // Pre-barriers: src → TRANSFER_SRC, dst → TRANSFER_DST (exact N1 masks).
+     barrier_to_layout(
+@@ -539,6 +544,91 @@ fn emit_recorded_copy_area_into_cb(
+     Ok(())
+ }
+ 
++/// Disjoint copy between the R8G8B8A8/B8G8R8A8 pair (Android AHardwareBuffer
++/// import into a B8G8R8A8 window): same barriers as the disjoint copy, with
++/// the BLIT stage, and a 1:1 `cmd_blit_image` that converts the format.
++fn emit_converting_copy_area(
++    device: &ash::Device,
++    cb: vk::CommandBuffer,
++    ca: &crate::kms::render::frame_builder::RecordedCopyArea,
++) {
++    let prior = vk::AccessFlags2::SHADER_SAMPLED_READ
++        | vk::AccessFlags2::TRANSFER_WRITE
++        | vk::AccessFlags2::COLOR_ATTACHMENT_WRITE;
++    barrier_to_layout(
++        device,
++        cb,
++        ca.src_image,
++        ca.src_old_layout,
++        vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
++        vk::PipelineStageFlags2::ALL_COMMANDS,
++        prior,
++        vk::PipelineStageFlags2::BLIT,
++        vk::AccessFlags2::TRANSFER_READ,
++    );
++    barrier_to_layout(
++        device,
++        cb,
++        ca.dst_image,
++        ca.dst_old_layout,
++        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
++        vk::PipelineStageFlags2::ALL_COMMANDS,
++        prior,
++        vk::PipelineStageFlags2::BLIT,
++        vk::AccessFlags2::TRANSFER_WRITE,
++    );
++    let (w, h) = (
++        ca.dst_rect.extent.width as i32,
++        ca.dst_rect.extent.height as i32,
++    );
++    let (sx, sy) = (ca.src_rect.offset.x, ca.src_rect.offset.y);
++    let (dx, dy) = (ca.dst_rect.offset.x, ca.dst_rect.offset.y);
++    let region = [vk::ImageBlit::default()
++        .src_subresource(color_layers())
++        .src_offsets([
++            vk::Offset3D { x: sx, y: sy, z: 0 },
++            vk::Offset3D { x: sx + w, y: sy + h, z: 1 },
++        ])
++        .dst_subresource(color_layers())
++        .dst_offsets([
++            vk::Offset3D { x: dx, y: dy, z: 0 },
++            vk::Offset3D { x: dx + w, y: dy + h, z: 1 },
++        ])];
++    unsafe {
++        device.cmd_blit_image(
++            cb,
++            ca.src_image,
++            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
++            ca.dst_image,
++            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
++            &region,
++            vk::Filter::NEAREST,
++        );
++    }
++    barrier_to_layout(
++        device,
++        cb,
++        ca.src_image,
++        vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
++        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
++        vk::PipelineStageFlags2::BLIT,
++        vk::AccessFlags2::TRANSFER_READ,
++        vk::PipelineStageFlags2::FRAGMENT_SHADER,
++        vk::AccessFlags2::SHADER_SAMPLED_READ,
++    );
++    barrier_to_layout(
++        device,
++        cb,
++        ca.dst_image,
++        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
++        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
++        vk::PipelineStageFlags2::BLIT,
++        vk::AccessFlags2::TRANSFER_WRITE,
++        vk::PipelineStageFlags2::FRAGMENT_SHADER,
++        vk::AccessFlags2::SHADER_SAMPLED_READ,
++    );
++}
++
+ /// Phase B.3 clip — replay a deferred `RecordedMaskedCopyArea`: a masked_blit
+ /// graphics draw that copies `sample_view` → dst gated by `mask_view`'s R8
+ /// coverage. NO snapshot refresh here — the snapshot is brought up to date by a
+diff --git a/crates/yserver-render/src/kms/render/engine/fill_copy.rs b/crates/yserver-render/src/kms/render/engine/fill_copy.rs
+index d462a88..55841eb 100644
+--- a/crates/yserver-render/src/kms/render/engine/fill_copy.rs
++++ b/crates/yserver-render/src/kms/render/engine/fill_copy.rs
+@@ -519,7 +519,14 @@ impl RenderEngine {
+             let d = store.get(dst).ok_or(RenderError::UnknownDrawable(dst))?;
+             (d.storage.image, d.storage.extent, d.storage.format)
+         };
+-        if src_format != dst_format {
++        // Android: an imported AHardwareBuffer may be R8G8B8A8 while windows
++        // are B8G8R8A8; that pair is copied with a format-converting blit.
++        let rgba_bgra = |f: vk::Format| {
++            matches!(f, vk::Format::R8G8B8A8_UNORM | vk::Format::B8G8R8A8_UNORM)
++        };
++        if src_format != dst_format
++            && !(src != dst && rgba_bgra(src_format) && rgba_bgra(dst_format))
++        {
+             return Err(RenderError::UnsupportedDepth(0));
+         }
+ 
+@@ -621,6 +628,7 @@ impl RenderEngine {
+             src_rect,
+             dst_rect,
+             src_format,
++            dst_format,
+             src_extent,
+             dst_extent,
+             src_image,
+diff --git a/crates/yserver-render/src/kms/render/frame_builder.rs b/crates/yserver-render/src/kms/render/frame_builder.rs
+index ab6bb01..8fe7f57 100644
+--- a/crates/yserver-render/src/kms/render/frame_builder.rs
++++ b/crates/yserver-render/src/kms/render/frame_builder.rs
+@@ -774,6 +774,9 @@ pub(crate) struct RecordedCopyArea {
+     pub(crate) src_rect: vk::Rect2D,
+     pub(crate) dst_rect: vk::Rect2D,
+     pub(crate) src_format: vk::Format,
++    /// Differs from `src_format` only for the R8G8B8A8/B8G8R8A8 pair
++    /// (Android AHardwareBuffer import); replayed as a blit.
++    pub(crate) dst_format: vk::Format,
+     pub(crate) src_extent: vk::Extent2D,
+     pub(crate) dst_extent: vk::Extent2D,
+     pub(crate) src_image: vk::Image,
+@@ -1528,6 +1531,7 @@ mod op_tests {
+             src_rect: vk::Rect2D::default(),
+             dst_rect: vk::Rect2D::default(),
+             src_format: vk::Format::B8G8R8A8_UNORM,
++            dst_format: vk::Format::B8G8R8A8_UNORM,
+             src_extent: vk::Extent2D::default(),
+             dst_extent: vk::Extent2D::default(),
+             src_image: vk::Image::null(),
