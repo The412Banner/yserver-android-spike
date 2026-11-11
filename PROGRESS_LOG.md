@@ -15,6 +15,12 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 11:0x — speed10 result; 0023 installed; launch checkpoint
+- speed10 (0022, YSERVER_DEBUG_SKIP_PRESENT_COPY=1): 2157.43 / 668.49 (vs ~585-595 with copies); flush_paint spike 3.5-4 ms remains once a second (= the AIO window's per-second title/label repaint through PutImage), reclaim sum ~13 ms (was ~29) → lazy present copy worth ~+12 % on the cube's 1 % low at most; not built (offer).
+- BL feat/yserver-hud-desktop APK staged /sdcard/Download/Bannerlator-yserver-hud-desktop-89e78d6a-pubg.apk sha256 fe110cd2… (host == device), NOT installed (needs the user's yes).
+- yserver 0023 CI 43050508997 green; de999f09 staged /sdcard/Download/yserver-android-0023-3035e164, installed.
+- Launch checkpoint: speed11 = AIO vk ys 30 s YSERVER_HIDE_CLASS=explorer.exe (black desktop?), fan max.
+
 ## 2026-11-11 10:5x — speed9 result; 0023 building; skip-copy retest checkpoint
 - speed9 (0022 f9dda551, YSERVER_TICK_TIMING=1 YSERVER_HIDE_CLASS=explorer.exe, fan max): 2179.86 / 595.48. YSERVER-FPS lines 2166-2216 (= AIO). Wallpaper + taskbar gone, but the desktop area was the root's GRAY (new window storage seeded from the parent, portable/windows.rs ~2066) → 0023 (3035e16): hidden windows paint black on every exposure.
 - Spikes located: rl.flush_paint (flush_before_damage_exposure → engine.flush_render_batch) max 3.4-4.2 ms; reclaim.poll_retired max ~1.9 ms. No blocking fence waits in the hot path (FenceTicket::wait only shutdown/readback) → Adreno driver submit/status calls under ~2200 present-copy submits/s.
