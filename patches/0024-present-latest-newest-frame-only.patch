@@ -1,0 +1,65 @@
+diff --git a/crates/yserver-core/src/bannerlator.rs b/crates/yserver-core/src/bannerlator.rs
+index fdc42db..3a9fac8 100644
+--- a/crates/yserver-core/src/bannerlator.rs
++++ b/crates/yserver-core/src/bannerlator.rs
+@@ -33,6 +33,17 @@ fn hide_classes() -> &'static [String] {
+     })
+ }
+ 
++/// "Newest frame only" (`YSERVER_PRESENT_LATEST`, on unless `0`): with
++/// `YSERVER_PRESENT_ASYNC=1`, a present the client marks async waits for the
++/// next host frame instead of running at once, and a newer one for the same
++/// window replaces it (supersession: the replaced buffer goes back idle,
++/// uncopied). The window then takes one copy per host frame instead of one per
++/// game frame. Presents without the async option still run at once.
++pub fn present_latest() -> bool {
++    static ON: OnceLock<bool> = OnceLock::new();
++    *ON.get_or_init(|| std::env::var("YSERVER_PRESENT_LATEST").map_or(true, |v| v != "0"))
++}
++
+ /// The window draws nothing and clears to black.
+ pub fn window_hidden(resources: &ResourceTable, window: u32) -> bool {
+     let names = hide_classes();
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index 65c1a50..ace4ad9 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -775,10 +775,17 @@ pub(super) fn effective_present_target_raw(
+     // client's explicit next-MSC targets would otherwise round its frames up
+     // to refresh slots (GTA IV: 66 → 40 fps at 144 Hz).
+     static FORCE_ASYNC: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+-    let (target_msc, divisor, remainder, options) = if *FORCE_ASYNC.get_or_init(|| {
++    let force_async = *FORCE_ASYNC.get_or_init(|| {
+         std::env::var_os("YSERVER_PRESENT_ASYNC").is_some_and(|v| v == "1")
+-    }) && crate::frame_cap::cap_mhz() == 0
++    }) && crate::frame_cap::cap_mhz() == 0;
++    let (target_msc, divisor, remainder, options) = if force_async
++        && crate::bannerlator::present_latest()
++        && options & crate::present_scheduler::PRESENT_ALL_ASYNC_OPTIONS != 0
+     {
++        // Newest frame only: an async present waits for the next host frame
++        // and a newer one replaces it (crate::bannerlator::present_latest).
++        (0, 0, 0, options & !crate::present_scheduler::PRESENT_ALL_ASYNC_OPTIONS)
++    } else if force_async {
+         (0, 0, 0, options | crate::present_scheduler::PRESENT_OPTION_ASYNC)
+     } else {
+         (target_msc, divisor, remainder, options)
+diff --git a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
+index e57b5c1..103914d 100644
+--- a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
++++ b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
+@@ -631,8 +631,13 @@ impl Platform for PlatformBackend {
+ 
+     fn present_supersedes_same_msc(b: &KmsBackend) -> bool {
+         // A rootless host's window system shows the frames it gets: every
+-        // present is executed in turn, as Xwayland does.
++        // present is executed in turn, as Xwayland does. Bannerlator's
++        // "newest frame only" (yserver_core::bannerlator::present_latest):
++        // the host takes one frame per refresh anyway, so a newer present for
++        // the same frame replaces a waiting one. Not under the FPS limiter,
++        // which paces every present (a replaced one would not hold the game).
+         !b.rootless_active()
++            || (yserver_core::bannerlator::present_latest() && yserver_core::frame_cap::cap_mhz() == 0)
+     }
+ 
+     fn present_scanout_blackout(b: &KmsBackend) -> bool {
