@@ -15,6 +15,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 00:5x EST — GTA IV gap = game main thread pinned to CPU 0 (no launch CPU mask in yserver mode); 0018/0019
+- Ruled out: compositor copy (zero-copy 40.8), present-wait (41.6), async (41.0), immediate mode (41.1), target_msc (0017: GTA sends target 0), yserver's copy (0018 YSERVER_DEBUG_SKIP_PRESENT_COPY=1 → 43.0). GPU per frame equal (X11 61 % @15.2 ms ≈ 9.3 ms; ys 37 % @24.4 ms ≈ 9.0 ms).
+- Found (ys-cpu.sh, p5f): ys → GTAIV.exe main thread `Cpus_allowed_list: 0` (the game pins itself to CPU 0, a 2.27 GHz little core) and it is the busiest thread; X11 → 0-7, heavy thread on core 2. X11 mode resets it via assignTaskAffinity (winhandler SetProcessAffinityMask on every app-window map), Wayland via the compositor's game report — in yserver mode that report names yserver ("launch CPU affinity for yserver").
+- **0019:** YSERVER-MAP carries `wow64=` (_NET_WM_WOW64). **BL 95325269:** assignYserverTaskAffinity(class, pid, wow64) on YSERVER-MAP (same as X11); compositor's assignWaylandTaskAffinity skipped in yserver mode. Steam client on yserver: bootstrap "Updating Steam" window drew fine (run cut at 100 s mid-update).
+
 ## 2026-11-11 00:2x EST — frame cap works; zero-copy layer works; GTA IV 40 vs 66 → FIFO target_msc rounding (0017)
 - **Frame cap (0016 + BL 77f321d6, limiter 60):** AIO cube avg 60.01 fps, 16.67 ms ± 1.39 ms, worst 22.96 ms; uncapped 2004 fps.
 - **Zero-copy layer (BANNER_WAYLAND_ZERO_COPY=1):** compositor shows yserver's AHB pool on a display layer ("978 zero-copy frames, copy 0"); DiRT 117.0 fps (GPU-bound, same as copy path 116.8).
