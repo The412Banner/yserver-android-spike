@@ -15,6 +15,11 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 01:3x EST — ✅ FINISHED: yserver 4e229a33 (0001–0019) + BL 931c441d device-proven; parity with X11
+- GTA IV CPU-mask fix (BL 95325269): ys 66.03 (= X11 66.1, Wayland 65.4). DiRT 116.8. Cube 2120 vs X11 2181. Frame cap 60.01. Steam client renders (store + friends). Click → Start menu works. Clipboard: compositor now offers ext_data_control_v1 (BL 931c441d), yserver's "no clipboard" warning gone (copy/paste not tried).
+- Final staged: /sdcard/Download/yserver-android-FINAL-4e229a33 (e5bbb132…) = files/yserver/yserver on the FIT.
+- Open: report the Adreno TRANSFER-bit queue bug upstream; ask Jos Dehaes + SetZero before anything public; 1 % lows in the cube lower than X11 (323 vs 847 fps); live limiter untested.
+
 ## 2026-11-11 00:5x EST — GTA IV gap = game main thread pinned to CPU 0 (no launch CPU mask in yserver mode); 0018/0019
 - Ruled out: compositor copy (zero-copy 40.8), present-wait (41.6), async (41.0), immediate mode (41.1), target_msc (0017: GTA sends target 0), yserver's copy (0018 YSERVER_DEBUG_SKIP_PRESENT_COPY=1 → 43.0). GPU per frame equal (X11 61 % @15.2 ms ≈ 9.3 ms; ys 37 % @24.4 ms ≈ 9.0 ms).
 - Found (ys-cpu.sh, p5f): ys → GTAIV.exe main thread `Cpus_allowed_list: 0` (the game pins itself to CPU 0, a 2.27 GHz little core) and it is the busiest thread; X11 → 0-7, heavy thread on core 2. X11 mode resets it via assignTaskAffinity (winhandler SetProcessAffinityMask on every app-window map), Wayland via the compositor's game report — in yserver mode that report names yserver ("launch CPU affinity for yserver").
