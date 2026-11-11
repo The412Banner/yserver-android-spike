@@ -1,0 +1,21 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index 8f2ad80..0c2150e 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -734,6 +734,16 @@ pub(super) fn effective_present_target_raw(
+     if domain.raw_msc == 0 {
+         return None;
+     }
++    // YSERVER_PRESENT_ASYNC=1: a request for the next field runs now, as if
++    // it were async (no wait for the host's refresh; the newest frame wins).
++    static FORCE_ASYNC: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++    let options = if *FORCE_ASYNC.get_or_init(|| {
++        std::env::var_os("YSERVER_PRESENT_ASYNC").is_some_and(|v| v == "1")
++    }) {
++        options | crate::present_scheduler::PRESENT_OPTION_ASYNC
++    } else {
++        options
++    };
+     // Xorg intentionally shifts only target_msc; divisor/remainder stay in
+     // the raw CRTC clock's residue class.
+     let effective = crate::present_scheduler::effective_target_msc(
