@@ -1,0 +1,89 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/windows.rs b/crates/yserver-core/src/core_loop/process_request/windows.rs
+index 919a152..017c95a 100644
+--- a/crates/yserver-core/src/core_loop/process_request/windows.rs
++++ b/crates/yserver-core/src/core_loop/process_request/windows.rs
+@@ -2645,6 +2645,52 @@ pub(super) fn handle_query_tree(
+     Ok(write_to_client(client, client_id, &buf))
+ }
+ 
++/// Bannerlator: a Wine window (one with the patched-Wine `_NET_WM_HWND`) is
++/// being mapped. One line on yserver's log for the launcher, which brings
++/// the window to the front inside Wine (winhandler.exe), as its Java X server
++/// does on every map: `YSERVER-MAP hwnd=0x… pid=… class=…`.
++fn notify_wine_window_map(state: &ServerState, window: ResourceId) {
++    let Some(hwnd_atom) = state.atoms.id_for("_NET_WM_HWND") else {
++        return;
++    };
++    let Some(hwnd) = state
++        .resources
++        .window_property(window, hwnd_atom)
++        .filter(|v| v.data.len() >= 4)
++        .map(|v| {
++            let mut b = [0u8; 8];
++            let n = v.data.len().min(8);
++            b[..n].copy_from_slice(&v.data[..n]);
++            u64::from_le_bytes(b)
++        })
++    else {
++        return;
++    };
++    let pid = state
++        .atoms
++        .id_for("_NET_WM_PID")
++        .and_then(|a| state.resources.window_property(window, a))
++        .filter(|v| v.data.len() >= 4)
++        .map_or(0, |v| u32::from_le_bytes([v.data[0], v.data[1], v.data[2], v.data[3]]));
++    // WM_CLASS: instance NUL class NUL; the class is what winhandler matches.
++    let class = state
++        .atoms
++        .id_for("WM_CLASS")
++        .and_then(|a| state.resources.window_property(window, a))
++        .map(|v| {
++            let mut parts = v.data.split(|&b| b == 0).filter(|p| !p.is_empty());
++            let instance = parts.next().unwrap_or_default();
++            let class = parts.next().unwrap_or(instance);
++            String::from_utf8_lossy(class).replace(char::is_whitespace, "_")
++        })
++        .unwrap_or_default();
++    log::info!(
++        target: "yserver::bannerlator",
++        "YSERVER-MAP window=0x{:x} hwnd=0x{hwnd:x} pid={pid} class={class}",
++        window.0
++    );
++}
++
+ pub(super) fn handle_map_window(
+     state: &mut ServerState,
+     backend: &mut dyn Backend,
+@@ -2714,6 +2760,7 @@ pub(super) fn handle_map_window(
+         );
+         return Ok(RequestOutcome::Handled);
+     }
++    notify_wine_window_map(state, window);
+ 
+     // SubstructureRedirect on the parent: forward MapRequest to the
+     // first subscriber that isn't the requester (the WM), and skip
+diff --git a/crates/yserver-render/src/kms/render/engine/emit.rs b/crates/yserver-render/src/kms/render/engine/emit.rs
+index b0763e5..5183f4a 100644
+--- a/crates/yserver-render/src/kms/render/engine/emit.rs
++++ b/crates/yserver-render/src/kms/render/engine/emit.rs
+@@ -544,12 +544,15 @@ fn emit_recorded_copy_area_into_cb(
+     Ok(())
+ }
+ 
+-/// `YSERVER_COPY_BLIT=1`: disjoint copies go through `vkCmdBlitImage`
+-/// (Adreno's proprietary driver allocates and clears GPU memory inside every
+-/// `vkCmdCopyImage`).
++/// Disjoint copies go through `vkCmdBlitImage`: on by default on Android,
++/// where Adreno's proprietary driver allocates and clears GPU memory inside
++/// every `vkCmdCopyImage` (profiled: 1.8 ms per Present); `YSERVER_COPY_BLIT`
++/// = 1/0 forces it either way.
+ pub fn copy_via_blit() -> bool {
+     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+-    *ON.get_or_init(|| std::env::var_os("YSERVER_COPY_BLIT").is_some_and(|v| v == "1"))
++    *ON.get_or_init(|| {
++        std::env::var_os("YSERVER_COPY_BLIT").map_or(cfg!(target_os = "android"), |v| v == "1")
++    })
+ }
+ 
+ /// Disjoint copy between the R8G8B8A8/B8G8R8A8 pair (Android AHardwareBuffer
