@@ -15,6 +15,10 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 12:0x — debugging newest frame only (user: "debug the newest frame only issue")
+- Code read: supersede_covered_pending_presents IS called on every pixmap arrival (present_ext.rs ~2238 arm_present_pixmap_source_then_supersede). Gates: backend.present_supersedes_same_msc(), successor_msc_due == Park, same window/crtc/epoch/eff, present_supersession_covers (→ successor_presents_full_extent: update_rects None or one rect covering the source). A failing full-extent gate logs nothing.
+- Experiment build: 0024 + 0025 back in patches/ + 0026 debug (PACE-INSTR stage=supersede_off / supersede_check per candidate with due, eff, crtc, epoch, full, covers, update rects, src size). FIT stays on 0023 except for the diagnostic run.
+
 ## 2026-11-11 11:5x — newest frame only PARKED (0024/0025 moved to parked/, not built); yserver 0023 de999f09 restored on the FIT
 - speed17 (0025, present_pace=debug, 10 s): 429.84 fps. Presents (kind=pixmap target_msc=0, eff=current+1) arrive 3 per MSC with the same eff, go source_ready → drained_parked → fired one by one at the MSC; NO supersede stage lines at all (not even supersede_declined) → supersede_covered_pending_presents never scraps: either the successor gate (successor_presents_full_extent: no update region or one rect covering the source) fails for these WSI presents, or the deferred-source path parks them outside present_pending_exec's supersession. Needs a debug round before retrying; with supersession not working, parking async presents throttles the game to the refresh rhythm.
 - Fan restored, Termux in front.

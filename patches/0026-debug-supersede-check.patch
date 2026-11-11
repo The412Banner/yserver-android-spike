@@ -1,0 +1,33 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index f3f9bc6..aed70c4 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -318,11 +318,28 @@ pub(super) fn supersede_covered_pending_presents(
+         return;
+     };
+     if !backend.present_supersedes_same_msc() {
++        log::debug!(target: "present_pace", "PACE-INSTR pid={} stage=supersede_off", successor.present_id);
+         return;
+     }
+     let window = successor.request.window();
+     let (successor_msc_due, _, _) =
+         classify_present_pixmap_msc_due_at_arrival(state, backend, successor);
++    if log::log_enabled!(target: "present_pace", log::Level::Debug) {
++        for (&pid, entry) in &state.present_pending_exec {
++            if entry.pending.request.window() != window {
++                continue;
++            }
++            log::debug!(
++                target: "present_pace",
++                "PACE-INSTR pid={} stage=supersede_check victim={} due={:?} eff={:?}/{:?} crtc={}/{} epoch={}/{} full={} covers={} upd={:?} src={}x{}",
++                successor.present_id, pid, successor_msc_due, entry.pending.effective_target_msc, Some(target),
++                entry.pending.crtc_id, successor.crtc_id, entry.pending.crtc_epoch, successor.crtc_epoch,
++                successor_presents_full_extent(successor), present_supersession_covers(successor, &entry.pending),
++                successor.update_rects.as_ref().map(|r| r.iter().map(|q| (q.x, q.y, q.width, q.height)).collect::<Vec<_>>()),
++                successor.src_width, successor.src_height
++            );
++        }
++    }
+     let mut victim_ids: Vec<u64> = Vec::new();
+     for (&pid, entry) in &state.present_pending_exec {
+         if successor_msc_due != crate::present_scheduler::MscDue::Park
