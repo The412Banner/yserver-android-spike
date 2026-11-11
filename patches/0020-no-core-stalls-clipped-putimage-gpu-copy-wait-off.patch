@@ -1,0 +1,128 @@
+diff --git a/crates/yserver/src/kms/render/backend/portable/draw.rs b/crates/yserver/src/kms/render/backend/portable/draw.rs
+index 8e33c9a..df7bc60 100644
+--- a/crates/yserver/src/kms/render/backend/portable/draw.rs
++++ b/crates/yserver/src/kms/render/backend/portable/draw.rs
+@@ -1290,6 +1290,34 @@ pub(in crate::kms::render::backend) fn apply_z_plane_mask(bytes: &mut [u8], dept
+     }
+ }
+ 
++/// `YSERVER_PUTIMAGE_CLIP_CPU=1`: clipped copy uploads take the CPU
++/// read-modify-write path as before (A/B switch).
++fn put_image_clip_cpu_forced() -> bool {
++    static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++    *FORCED.get_or_init(|| std::env::var("YSERVER_PUTIMAGE_CLIP_CPU").is_ok_and(|v| v == "1"))
++}
++
++/// The `w`x`h` part of a Z-pixmap wire image at (`sx`, `sy`), as a wire
++/// image of its own. Byte-per-pixel depths only (8, 24, 32); `None` for
++/// the bit-packed ones or a part outside the image.
++fn z_pixmap_sub_image(data: &[u8], depth: u8, width: u16, sx: usize, sy: usize, w: u16, h: u16) -> Option<Vec<u8>> {
++    let bpp = match depth {
++        8 => 1,
++        24 | 32 => 4,
++        _ => return None,
++    };
++    let src_stride = z_pixmap_row_stride(depth, u32::from(width));
++    let dst_stride = z_pixmap_row_stride(depth, u32::from(w));
++    let row = usize::from(w) * bpp;
++    let mut out = vec![0u8; dst_stride * usize::from(h)];
++    for y in 0..usize::from(h) {
++        let start = (sy + y) * src_stride + sx * bpp;
++        let src = data.get(start..start + row)?;
++        out[y * dst_stride..y * dst_stride + row].copy_from_slice(src);
++    }
++    Some(out)
++}
++
+ fn z_pixmap_row_stride(depth: u8, width: u32) -> usize {
+     match depth {
+         1 => width.div_ceil(32) as usize * 4,
+@@ -2392,7 +2420,41 @@ impl<P: Platform> XBackend<P> {
+                 // still exactly the source value.
+                 let pieces = children_clip.unwrap_or_else(|| vec![local]);
+                 let runs = self.intersect_with_current_clip_live(&pieces);
++                // A plain copy needs no destination pixels: each run goes up
++                // through the GPU path as its own sub-image. The CPU path
++                // reads the destination back first, which waits for the GPU
++                // (2-4 ms per upload while a game keeps it busy).
++                let gpu_runs = matches!(function, GcFunction::Copy)
++                    && plane_mask == full_mask
++                    && !put_image_clip_cpu_forced();
+                 for run in runs {
++                    if gpu_runs {
++                        let sx = i32::from(run.x) - i32::from(dst_x);
++                        let sy = i32::from(run.y) - i32::from(dst_y);
++                        let sub = (sx >= 0 && sy >= 0)
++                            .then(|| z_pixmap_sub_image(data, depth, width, sx as usize, sy as usize, run.width, run.height))
++                            .flatten();
++                        if let Some(sub) = sub {
++                            let put = self.engine.put_image(
++                                &mut self.store,
++                                self.platform.gpu_mut(),
++                                target.dst(),
++                                ash::vk::Offset2D {
++                                    x: i32::from(run.x) + target.offset().0,
++                                    y: i32::from(run.y) + target.offset().1,
++                                },
++                                ash::vk::Extent2D {
++                                    width: u32::from(run.width),
++                                    height: u32::from(run.height),
++                                },
++                                &sub,
++                                depth,
++                            );
++                            if put.is_ok() {
++                                continue;
++                            }
++                        }
++                    }
+                     self.put_image_rop_cpu(
+                         target.dst(),
+                         ash::vk::Offset2D {
+diff --git a/crates/yserver/src/rootless/ahb.rs b/crates/yserver/src/rootless/ahb.rs
+index 331923e..bf5ff57 100644
+--- a/crates/yserver/src/rootless/ahb.rs
++++ b/crates/yserver/src/rootless/ahb.rs
+@@ -24,8 +24,18 @@ use crate::kms::{
+ /// Buffers per window: one shown, one queued in the compositor, one filling.
+ const POOL: usize = 3;
+ 
+-/// How long the core thread waits for a copy before leaving it to the poll.
+-const COPY_WAIT_NS: u64 = 4_000_000;
++/// How long the core thread waits for a copy before leaving it to the poll:
++/// `YSERVER_COPY_WAIT_US`, 0 (no wait) by default. Every client stalls while
++/// it waits, and the copy queues behind the game's own GPU work.
++fn copy_wait_ns() -> u64 {
++    static WAIT: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
++    *WAIT.get_or_init(|| {
++        std::env::var("YSERVER_COPY_WAIT_US")
++            .ok()
++            .and_then(|v| v.parse::<u64>().ok())
++            .map_or(0, |us| us.saturating_mul(1000))
++    })
++}
+ 
+ const USAGE: u64 = ahb::USAGE_GPU_SAMPLED_IMAGE
+     | ahb::USAGE_GPU_FRAMEBUFFER
+@@ -220,13 +230,14 @@ impl AhbState {
+             ticket,
+         });
+         moved = true;
+-        // The copy is short (a blit of the window): wait for it here, up to a
+-        // few ms, so the buffer reaches the compositor in this refresh rather
+-        // than at the next 1 ms poll. A longer wait (the GPU busy with a game)
+-        // falls back to the poll.
+-        let fence = [self.in_flight.as_ref().expect("set above").ticket.fence()];
+-        // SAFETY: a fence of this device, submitted above.
+-        let _ = unsafe { vk.device.wait_for_fences(&fence, true, COPY_WAIT_NS) };
++        // Optionally wait for the copy here so the buffer reaches the
++        // compositor in this pass rather than at the next 1 ms poll.
++        let wait = copy_wait_ns();
++        if wait > 0 {
++            let fence = [self.in_flight.as_ref().expect("set above").ticket.fence()];
++            // SAFETY: a fence of this device, submitted above.
++            let _ = unsafe { vk.device.wait_for_fences(&fence, true, wait) };
++        }
+         self.hand_over(id, depth, host, t.vk);
+         moved
+     }
