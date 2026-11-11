@@ -10,6 +10,26 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-10 — Device run 3: AHB DRI3 works for BGRA, RGBA fixed in patch 0006 (feat/android-build, CI pending)
+- **Why:** user "continue yserver" (19:12 EST); session root-66 took over from the earlier session.
+- **Device run 3 (19:14:04 EST, package 9ae0b21f, Termux sandbox uid 10183):** SHA256SUMS ok; xprobe 15/15
+  PASS (round trip 61.8 µs vs 17.3 µs in run 2, PutImage 457 vs 572 MB/s; Discord + Bannerlator were open).
+  yserver now lists **22 extensions incl. DRI3** (GLX still missing). ahbprobe 8 pass / 2 fail:
+  - DRI3 1.2, Present 1.4; BGRA (AHB format 5) import ack 0.13 ms, CopyArea + PresentPixmap read back
+    exactly (present 3.19 ms); 300-present loop 508/s, 1.97 ms avg, worst 10.34 ms; empty socket acked +
+    refused (Alloc); server still answers; RSS 45 → 53 MB; no panic; crash buffer empty.
+  - **FAIL rgba-copyarea / rgba-present:** RGBA (format 1) import accepted, but every copy from it failed:
+    yserver.log 152x `engine.copy_area failed ... UnsupportedDepth(0)`. Cause: `engine/fill_copy.rs`
+    `copy_area` rejects src_format != dst_format (R8G8B8A8 pixmap vs B8G8R8A8 window; it uses
+    cmd_copy_image). The present-loop PASS hid this (it checks completion only, alternates both pixmaps).
+  - Does RGBA matter? The wrapper (leegao/bionic-vulkan-wrapper 3abf4870 `wsi_common_ahardware_buffer.c`)
+    sends B8G8R8A8 (format 5) normally, but **R8G8B8A8 (format 1, linear) in its blit mode** → yes.
+- **Fix (patch 0006, 3 files +103/-1):** copy_area allows the R8G8B8A8/B8G8R8A8 pair (src != dst);
+  `RecordedCopyArea.dst_format`; `emit_converting_copy_area` = same barriers with the BLIT stage +
+  1:1 `cmd_blit_image` (NEAREST). AHB images already have TRANSFER_SRC usage, OPTIMAL tiling; blit
+  src/dst are mandatory format features for both formats. All 6 patches apply to the pin (clean worktree).
+- **Next:** CI → stage → device run 4 (expect ahbprobe 10/10) → step 3 (Wine via a BL test build) — not started.
+
 ## 2026-11-10 — Android buffer (AHB) DRI3 path (feat/android-build, IN PROGRESS, nothing built yet)
 - **Why:** user 2026-11-10 ~18:45 EST: "do the android buffer path next". Game frames from the guest
   Vulkan wrapper arrive as DRI3 1.2 PixmapFromBuffers with modifier 1255 and a socket fd carrying
