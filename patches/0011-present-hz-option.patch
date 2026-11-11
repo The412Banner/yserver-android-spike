@@ -1,0 +1,31 @@
+diff --git a/crates/yserver/src/rootless/present_clock.rs b/crates/yserver/src/rootless/present_clock.rs
+index af970c1..e6b60c0 100644
+--- a/crates/yserver/src/rootless/present_clock.rs
++++ b/crates/yserver/src/rootless/present_clock.rs
+@@ -129,9 +129,25 @@ impl PresentClock {
+     }
+ }
+ 
++/// `YSERVER_PRESENT_HZ`: a Present clock of its own rate instead of the
++/// host's refresh (a frame-rate cap for synced presents), 0/unset = host.
++fn present_hz_override() -> u64 {
++    static HZ: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
++    *HZ.get_or_init(|| {
++        std::env::var("YSERVER_PRESENT_HZ")
++            .ok()
++            .and_then(|v| v.trim().parse::<f64>().ok())
++            .filter(|hz| *hz >= 1.0 && *hz <= 1000.0)
++            .map_or(0, |hz| (hz * 1000.0) as u64)
++    })
++}
++
+ /// An MSC's length in nanoseconds at `refresh_mhz` millihertz.
+ fn period_of(refresh_mhz: u64) -> u64 {
+-    let refresh_mhz = if refresh_mhz == 0 {
++    let forced = present_hz_override();
++    let refresh_mhz = if forced != 0 {
++        forced
++    } else if refresh_mhz == 0 {
+         DEFAULT_REFRESH_MHZ
+     } else {
+         refresh_mhz
