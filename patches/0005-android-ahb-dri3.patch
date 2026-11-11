@@ -538,6 +538,19 @@ index 0000000..efbc83f
 +            .ok_or_else(|| io::Error::other("DRI3 import: failed to make PixmapHandle"))
 +    }
 +}
+diff --git a/crates/yserver/src/kms/vk/mod.rs b/crates/yserver/src/kms/vk/mod.rs
+index d2d9557..ac3e924 100644
+--- a/crates/yserver/src/kms/vk/mod.rs
++++ b/crates/yserver/src/kms/vk/mod.rs
+@@ -9,6 +9,8 @@ pub use yserver_render::kms::vk::{
+     logic_fill_pipeline, mask_scratch, mem_accounting, ops, pipeline, pixmap_pool, render_pipeline,
+     submit_stats, sync, target, text_pipeline, trap_pipeline, vram,
+ };
++#[cfg(target_os = "android")]
++pub use yserver_render::kms::vk::ahb;
+ #[cfg(kms)]
+ pub(crate) use yserver_render::kms::vk::{
+     image_format_properties2, optional_sync_fd_from_vk, owned_fd_from_vk, probe_digest,
 diff --git a/crates/yserver/src/surface/platform.rs b/crates/yserver/src/surface/platform.rs
 index db9cbbe..8043ab3 100644
 --- a/crates/yserver/src/surface/platform.rs
