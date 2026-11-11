@@ -1,0 +1,27 @@
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index db50886..24c2bbc 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -729,6 +729,13 @@ pub(super) fn select_present_domain(
+ /// another and the client gets one buffer back per MSC — a mailbox client
+ /// is held to the cap too, as Bannerlator's Java X server holds it by
+ /// delaying IdleNotify. Off: the target as computed.
++/// Debug (`YSERVER_DEBUG_SKIP_PRESENT_COPY=1`): a full-window present copies
++/// nothing (events as usual), to measure what the copy costs a game.
++fn debug_skip_present_copy() -> bool {
++    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++    *ON.get_or_init(|| std::env::var_os("YSERVER_DEBUG_SKIP_PRESENT_COPY").is_some_and(|v| v == "1"))
++}
++
+ fn frame_cap_target(window: u32, eff: u64) -> u64 {
+     if crate::frame_cap::cap_mhz() == 0 {
+         return eff;
+@@ -1144,7 +1151,7 @@ pub(super) fn execute_present_pixmap_copy(
+                 rect.height,
+             )?;
+         }
+-    } else {
++    } else if !debug_skip_present_copy() {
+         backend.copy_area(
+             origin,
+             src_host_xid,
