@@ -1,0 +1,480 @@
+diff --git a/crates/yserver-core/src/bannerlator.rs b/crates/yserver-core/src/bannerlator.rs
+new file mode 100644
+index 0000000..fdc42db
+--- /dev/null
++++ b/crates/yserver-core/src/bannerlator.rs
+@@ -0,0 +1,100 @@
++//! Bannerlator launcher hooks.
++//!
++//! - `YSERVER_HIDE_CLASS=<name>[,<name>...]`: windows whose WM_CLASS instance or
++//!   class contains one of the names draw nothing and clear to black, as
++//!   Bannerlator's own X server leaves Wine's desktop (explorer.exe) out for game
++//!   shortcuts. Their children of other classes draw as usual.
++//! - Present counting: one `YSERVER-FPS` line a second for the window with the
++//!   most presents, so the launcher's HUD can show the game's own frame rate.
++
++use std::cell::RefCell;
++use std::collections::HashMap;
++use std::sync::OnceLock;
++use std::time::{Duration, Instant};
++
++use yserver_protocol::x11::{AtomId, ResourceId};
++
++use crate::resources::ResourceTable;
++
++/// Predefined atom WM_CLASS (X11 core protocol).
++const WM_CLASS: AtomId = AtomId(67);
++
++fn hide_classes() -> &'static [String] {
++    static NAMES: OnceLock<Vec<String>> = OnceLock::new();
++    NAMES.get_or_init(|| {
++        std::env::var("YSERVER_HIDE_CLASS")
++            .map(|v| {
++                v.split(',')
++                    .map(|s| s.trim().to_ascii_lowercase())
++                    .filter(|s| !s.is_empty())
++                    .collect()
++            })
++            .unwrap_or_default()
++    })
++}
++
++/// The window draws nothing and clears to black.
++pub fn window_hidden(resources: &ResourceTable, window: u32) -> bool {
++    let names = hide_classes();
++    if names.is_empty() {
++        return false;
++    }
++    let Some(value) = resources.window_property(ResourceId(window), WM_CLASS) else {
++        return false;
++    };
++    value
++        .data
++        .split(|&b| b == 0)
++        .filter(|p| !p.is_empty())
++        .any(|part| {
++            let part = String::from_utf8_lossy(part).to_ascii_lowercase();
++            names.iter().any(|n| part.contains(n.as_str()))
++        })
++}
++
++/// The destination drawable of a core drawing request that paints into it
++/// (not ClearArea, which paints the background, nor GetImage).
++pub fn core_draw_target(opcode: u8, body: &[u8]) -> Option<u32> {
++    let at = match opcode {
++        62 | 63 => 4,
++        64..=72 | 74..=77 => 0,
++        _ => return None,
++    };
++    let b = body.get(at..at + 4)?;
++    Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
++}
++
++struct FpsCounter {
++    since: Instant,
++    counts: HashMap<u32, u32>,
++}
++
++thread_local! {
++    static FPS: RefCell<Option<FpsCounter>> = const { RefCell::new(None) };
++}
++
++/// One present on `window`; once a second, report the busiest window.
++pub fn count_present(window: u32) {
++    FPS.with(|f| {
++        let mut f = f.borrow_mut();
++        let now = Instant::now();
++        let c = f.get_or_insert_with(|| FpsCounter {
++            since: now,
++            counts: HashMap::new(),
++        });
++        *c.counts.entry(window).or_insert(0) += 1;
++        let elapsed = now.duration_since(c.since);
++        if elapsed < Duration::from_secs(1) {
++            return;
++        }
++        if let Some((&w, &n)) = c.counts.iter().max_by_key(|(_, n)| **n) {
++            log::info!(
++                target: "yserver::bannerlator",
++                "YSERVER-FPS window=0x{w:x} fps={:.1}",
++                f64::from(n) / elapsed.as_secs_f64()
++            );
++        }
++        c.counts.clear();
++        c.since = now;
++    });
++}
+diff --git a/crates/yserver-core/src/core_loop/process_request.rs b/crates/yserver-core/src/core_loop/process_request.rs
+index 8d66deb..938bdce 100644
+--- a/crates/yserver-core/src/core_loop/process_request.rs
++++ b/crates/yserver-core/src/core_loop/process_request.rs
+@@ -437,6 +437,12 @@ pub fn process_request(
+             header.opcode,
+         );
+     }
++    // Bannerlator: drawing into a hidden window (YSERVER_HIDE_CLASS) is dropped.
++    if let Some(target) = crate::bannerlator::core_draw_target(header.opcode, body)
++        && crate::bannerlator::window_hidden(&state.resources, target)
++    {
++        return Ok(RequestOutcome::Handled);
++    }
+     let outcome = match header.opcode {
+         // ── server scheduling grab ──
+         36 => handle_grab_server(state, client_id, sequence),
+diff --git a/crates/yserver-core/src/core_loop/process_request/present_ext.rs b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+index 24c2bbc..65c1a50 100644
+--- a/crates/yserver-core/src/core_loop/process_request/present_ext.rs
++++ b/crates/yserver-core/src/core_loop/process_request/present_ext.rs
+@@ -1022,6 +1022,7 @@ pub(super) fn execute_present_pixmap_copy(
+         ),
+     };
+ 
++    crate::bannerlator::count_present(window);
+     let variable_refresh = crate::properties::variable_refresh_property_enabled(
+         state
+             .atoms
+diff --git a/crates/yserver-core/src/core_loop/process_request/xshm.rs b/crates/yserver-core/src/core_loop/process_request/xshm.rs
+index 3c7286b..408faeb 100644
+--- a/crates/yserver-core/src/core_loop/process_request/xshm.rs
++++ b/crates/yserver-core/src/core_loop/process_request/xshm.rs
+@@ -318,6 +318,10 @@ pub(super) fn handle_mit_shm_request(
+                     MIT_SHM_MAJOR_OPCODE,
+                 );
+             };
++            // Bannerlator: no drawing into a hidden window (no completion event asked).
++            if !req.send_event && crate::bannerlator::window_hidden(&state.resources, req.drawable) {
++                return Ok(RequestOutcome::Handled);
++            }
+             return handle_mit_shm_put_image(state, backend, origin, client_id, sequence, req);
+         }
+         shm::GET_IMAGE => {
+diff --git a/crates/yserver-core/src/lib.rs b/crates/yserver-core/src/lib.rs
+index dcc1882..a16cd79 100644
+--- a/crates/yserver-core/src/lib.rs
++++ b/crates/yserver-core/src/lib.rs
+@@ -1,4 +1,5 @@
+ pub mod frame_cap;
++pub mod bannerlator;
+ pub mod access;
+ #[cfg(unix)]
+ pub mod anon_shm;
+diff --git a/crates/yserver-core/src/resources/pixmap_props.rs b/crates/yserver-core/src/resources/pixmap_props.rs
+index 665b124..b4f307f 100644
+--- a/crates/yserver-core/src/resources/pixmap_props.rs
++++ b/crates/yserver-core/src/resources/pixmap_props.rs
+@@ -166,6 +166,14 @@ impl ResourceTable {
+         seen.push(window_id);
+ 
+         let window = self.windows.get(&window_id.0)?;
++        // Bannerlator: a hidden window (YSERVER_HIDE_CLASS) clears to black.
++        if crate::bannerlator::window_hidden(self, window_id.0) {
++            return Some(ResolvedWindowBackground {
++                background_pixel: 0,
++                background_pixmap_host_xid: None,
++                tile_origin_offset: (0, 0),
++            });
++        }
+         if matches!(window.background_pixmap, Some(bg) if bg.0 == 1) {
+             // ParentRelative: inherit the parent's background; the
+             // tile stays aligned to the PARENT's origin, so this
+diff --git a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
+index cb3a560..e57b5c1 100644
+--- a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
++++ b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
+@@ -477,25 +477,25 @@ impl Platform for PlatformBackend {
+     }
+ 
+     fn before_block(b: &mut KmsBackend) {
+-        let t = tick_timing::start();
++        let t = crate::tick_timing::start();
+         if let Some(rootless) = b.pstate.rootless.as_mut() {
+             rootless.host.borrow_mut().flush();
+             if let Some(presenter) = rootless.presenter.as_mut() {
+                 presenter.poll_retiring();
+             }
+         }
+-        tick_timing::record(2, t);
+-        let t = tick_timing::start();
++        crate::tick_timing::record(2, t);
++        let t = crate::tick_timing::start();
+         b.reclaim_retired_gpu_work();
+-        tick_timing::record(3, t);
++        crate::tick_timing::record(3, t);
+         b.platform
+             .emit_tearing_summary_if_due(b.pstate.tearing.is_on(), b.telemetry.avg_gpu_render_ns());
+     }
+ 
+     fn flush_before_damage_notify(b: &mut KmsBackend) {
+-        let t = tick_timing::start();
++        let t = crate::tick_timing::start();
+         b.flush_before_damage_exposure();
+-        tick_timing::record(4, t);
++        crate::tick_timing::record(4, t);
+     }
+ 
+     fn next_wakeup(b: &KmsBackend) -> Option<std::time::Instant> {
+@@ -508,13 +508,13 @@ impl Platform for PlatformBackend {
+     }
+ 
+     fn maybe_composite(b: &mut KmsBackend) -> io::Result<()> {
+-        let t = tick_timing::start();
++        let t = crate::tick_timing::start();
+         let composed = KmsBackend::backend_scanout_maybe_composite(b);
+-        tick_timing::record(0, t);
+-        let t = tick_timing::start();
++        crate::tick_timing::record(0, t);
++        let t = crate::tick_timing::start();
+         b.rootless_tick();
+-        tick_timing::record(1, t);
+-        tick_timing::maybe_emit();
++        crate::tick_timing::record(1, t);
++        crate::tick_timing::maybe_emit();
+         composed
+     }
+ 
+@@ -1069,60 +1069,3 @@ impl KmsBackend {
+     }
+ }
+ 
+-/// Debug (`YSERVER_TICK_TIMING=1`): the longest and the total time per second
+-/// of each piece of backend work the core loop runs between requests.
+-mod tick_timing {
+-    use std::cell::{Cell, RefCell};
+-    use std::time::{Duration, Instant};
+-
+-    const NAMES: [&str; 5] = ["scanout_composite", "rootless_tick", "host_flush", "reclaim_gpu", "flush_before_damage"];
+-
+-    thread_local! {
+-        static MAX: RefCell<[Duration; 5]> = const { RefCell::new([Duration::ZERO; 5]) };
+-        static SUM: RefCell<[Duration; 5]> = const { RefCell::new([Duration::ZERO; 5]) };
+-        static LAST: Cell<Option<Instant>> = const { Cell::new(None) };
+-    }
+-
+-    fn on() -> bool {
+-        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+-        *ON.get_or_init(|| std::env::var("YSERVER_TICK_TIMING").is_ok_and(|v| v == "1"))
+-    }
+-
+-    pub(super) fn start() -> Option<Instant> {
+-        on().then(Instant::now)
+-    }
+-
+-    pub(super) fn record(i: usize, start: Option<Instant>) {
+-        let Some(start) = start else { return };
+-        let d = start.elapsed();
+-        MAX.with(|m| {
+-            let mut m = m.borrow_mut();
+-            if d > m[i] {
+-                m[i] = d;
+-            }
+-        });
+-        SUM.with(|s| s.borrow_mut()[i] += d);
+-    }
+-
+-    pub(super) fn maybe_emit() {
+-        if !on() {
+-            return;
+-        }
+-        let now = Instant::now();
+-        let last = LAST.with(|l| l.get());
+-        let Some(last) = last else {
+-            LAST.with(|l| l.set(Some(now)));
+-            return;
+-        };
+-        if now.duration_since(last) < Duration::from_secs(1) {
+-            return;
+-        }
+-        LAST.with(|l| l.set(Some(now)));
+-        let max = MAX.with(|m| std::mem::replace(&mut *m.borrow_mut(), [Duration::ZERO; 5]));
+-        let sum = SUM.with(|s| std::mem::replace(&mut *s.borrow_mut(), [Duration::ZERO; 5]));
+-        let parts: Vec<String> = (0..5)
+-            .map(|i| format!("{} max={:.2}ms sum={:.1}ms", NAMES[i], max[i].as_secs_f64() * 1000.0, sum[i].as_secs_f64() * 1000.0))
+-            .collect();
+-        log::info!("tick timing [{:.2}s]: {}", now.duration_since(last).as_secs_f64(), parts.join(" | "));
+-    }
+-}
+diff --git a/crates/yserver/src/kms/render/backend/portable/compose.rs b/crates/yserver/src/kms/render/backend/portable/compose.rs
+index 02ec988..12e5f2f 100644
+--- a/crates/yserver/src/kms/render/backend/portable/compose.rs
++++ b/crates/yserver/src/kms/render/backend/portable/compose.rs
+@@ -177,13 +177,19 @@ impl<P: Platform> XBackend<P> {
+         // (project_reclamation_starvation_leak). poll_retired only frees
+         // ops whose fence has signaled and is a cheap no-op on an empty
+         // queue, so running it every iteration costs nothing at idle.
++        let t = crate::tick_timing::start();
+         self.engine.poll_retired(self.platform.gpu());
++        crate::tick_timing::record(10, t);
++        let t = crate::tick_timing::start();
+         self.poll_pending_retire_with_invalidate();
++        crate::tick_timing::record(11, t);
++        let t = crate::tick_timing::start();
+         // #196: destroy pixmap-pool entries idle past the eviction age, so
+         // a burst drains back down; `next_wakeup` wakes us for it.
+         if let Some(pool) = self.platform.gpu().pixmap_pool.as_ref() {
+             pool.trim_idle(std::time::Instant::now());
+         }
++        crate::tick_timing::record(12, t);
+         // Diagnostic: drive the 1Hz telemetry emit from here too,
+         // publishing the live `submitted`-queue depth. maybe_emit()
+         // self-gates to 1Hz and is a no-op below threshold, but running
+@@ -193,7 +199,9 @@ impl<P: Platform> XBackend<P> {
+         // watching (project_reclamation_starvation_leak). Without this,
+         // the only other maybe_emit caller is on the compose path, which
+         // is gated off when dark, so telemetry went silent in the window.
++        let t = crate::tick_timing::start();
+         self.telemetry.maybe_emit(self.engine.pending_count());
++        crate::tick_timing::record(13, t);
+     }
+ 
+     /// Submit recorded drawing before its damage is exposed.
+diff --git a/crates/yserver/src/lib.rs b/crates/yserver/src/lib.rs
+index 4b7fa50..e912428 100644
+--- a/crates/yserver/src/lib.rs
++++ b/crates/yserver/src/lib.rs
+@@ -25,6 +25,7 @@ pub mod settings;
+ // clipboard); elsewhere the window half is unused.
+ #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+ pub(crate) mod surface;
++pub(crate) mod tick_timing;
+ pub mod version;
+ #[cfg(kms)]
+ mod vt;
+diff --git a/crates/yserver/src/rootless/ahb.rs b/crates/yserver/src/rootless/ahb.rs
+index bf5ff57..ae68f3e 100644
+--- a/crates/yserver/src/rootless/ahb.rs
++++ b/crates/yserver/src/rootless/ahb.rs
+@@ -162,7 +162,9 @@ impl AhbState {
+         host: &mut dyn RootlessHost,
+         t: &mut AhbTick<'_>,
+     ) -> bool {
++        let th = crate::tick_timing::start();
+         let mut moved = self.hand_over(id, depth, host, t.vk);
++        crate::tick_timing::record(8, th);
+         if !self.wants_frame(frames, t.store) {
+             return moved;
+         }
+@@ -196,10 +198,14 @@ impl AhbState {
+         let vk = Arc::clone(t.vk);
+         let cb = self.cbs[index];
+         let image = self.slots[index].image;
+-        if let Err(e) = Self::record(&vk, t.store, backing, cb, image, extent) {
++        let tr = crate::tick_timing::start();
++        let recorded = Self::record(&vk, t.store, backing, cb, image, extent);
++        crate::tick_timing::record(6, tr);
++        if let Err(e) = recorded {
+             log::warn!("rootless: AHardwareBuffer copy for {id:?}: {e:?}");
+             return moved;
+         }
++        let ts = crate::tick_timing::start();
+         let ticket = match t.gpu.acquire_fence_ticket() {
+             Ok(ticket) => ticket,
+             Err(e) => {
+@@ -214,6 +220,7 @@ impl AhbState {
+             log::warn!("rootless: AHardwareBuffer copy submit for {id:?}: {e:?}");
+             return moved;
+         }
++        crate::tick_timing::record(7, ts);
+         t.store.touch_render_fence(backing, ticket.clone());
+         let full = Rect {
+             x: 0,
+@@ -238,7 +245,9 @@ impl AhbState {
+             // SAFETY: a fence of this device, submitted above.
+             let _ = unsafe { vk.device.wait_for_fences(&fence, true, wait) };
+         }
++        let th = crate::tick_timing::start();
+         self.hand_over(id, depth, host, t.vk);
++        crate::tick_timing::record(8, th);
+         moved
+     }
+ 
+diff --git a/crates/yserver/src/rootless/mod.rs b/crates/yserver/src/rootless/mod.rs
+index 377155d..0932047 100644
+--- a/crates/yserver/src/rootless/mod.rs
++++ b/crates/yserver/src/rootless/mod.rs
+@@ -267,14 +267,18 @@ impl Presenter {
+         let Some(vk) = b.platform.gpu().vk().cloned() else {
+             return;
+         };
++        let t = crate::tick_timing::start();
+         self.poll_retiring();
++        crate::tick_timing::record(9, t);
+         if self.windows.is_empty() {
+             return;
+         }
+         // Recorded paint must be submitted, its damage in the store, before
+         // any readiness or damage decision (compose.rs
+         // `flush_before_damage_exposure`); `next_wakeup` then sees it too.
++        let t = crate::tick_timing::start();
+         b.flush_before_damage_exposure();
++        crate::tick_timing::record(5, t);
+         #[cfg(test)]
+         let maintenance1 = vk.swapchain_maintenance1 && !self.no_maintenance1;
+         #[cfg(not(test))]
+diff --git a/crates/yserver/src/tick_timing.rs b/crates/yserver/src/tick_timing.rs
+new file mode 100644
+index 0000000..0369a88
+--- /dev/null
++++ b/crates/yserver/src/tick_timing.rs
+@@ -0,0 +1,62 @@
++//! Debug (`YSERVER_TICK_TIMING=1`): the longest and the total time per second
++//! of each piece of backend work the core loop runs between requests.
++
++use std::cell::{Cell, RefCell};
++use std::time::{Duration, Instant};
++
++const N: usize = 14;
++const NAMES: [&str; N] = [
++    "scanout_composite", "rootless_tick", "host_flush", "reclaim_gpu", "flush_before_damage",
++    "rl.flush_paint", "ahb.record", "ahb.submit", "ahb.hand_over", "rl.poll_retiring",
++    "reclaim.poll_retired", "reclaim.pending_retire", "reclaim.trim_idle", "reclaim.telemetry",
++];
++
++thread_local! {
++    static MAX: RefCell<[Duration; N]> = const { RefCell::new([Duration::ZERO; N]) };
++    static SUM: RefCell<[Duration; N]> = const { RefCell::new([Duration::ZERO; N]) };
++    static LAST: Cell<Option<Instant>> = const { Cell::new(None) };
++}
++
++fn on() -> bool {
++    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++    *ON.get_or_init(|| std::env::var("YSERVER_TICK_TIMING").is_ok_and(|v| v == "1"))
++}
++
++pub(crate) fn start() -> Option<Instant> {
++    on().then(Instant::now)
++}
++
++pub(crate) fn record(i: usize, start: Option<Instant>) {
++    let Some(start) = start else { return };
++    let d = start.elapsed();
++    MAX.with(|m| {
++        let mut m = m.borrow_mut();
++        if d > m[i] {
++            m[i] = d;
++        }
++    });
++    SUM.with(|s| s.borrow_mut()[i] += d);
++}
++
++pub(crate) fn maybe_emit() {
++    if !on() {
++        return;
++    }
++    let now = Instant::now();
++    let last = LAST.with(|l| l.get());
++    let Some(last) = last else {
++        LAST.with(|l| l.set(Some(now)));
++        return;
++    };
++    if now.duration_since(last) < Duration::from_secs(1) {
++        return;
++    }
++    LAST.with(|l| l.set(Some(now)));
++    let max = MAX.with(|m| std::mem::replace(&mut *m.borrow_mut(), [Duration::ZERO; N]));
++    let sum = SUM.with(|s| std::mem::replace(&mut *s.borrow_mut(), [Duration::ZERO; N]));
++    let parts: Vec<String> = (0..N)
++        .filter(|&i| max[i] >= Duration::from_micros(200))
++        .map(|i| format!("{} max={:.2}ms sum={:.1}ms", NAMES[i], max[i].as_secs_f64() * 1000.0, sum[i].as_secs_f64() * 1000.0))
++        .collect();
++    log::info!("tick timing [{:.2}s]: {}", now.duration_since(last).as_secs_f64(), parts.join(" | "));
++}
