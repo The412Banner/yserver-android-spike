@@ -15,6 +15,12 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-11 10:0x — games on 0020 OK; 0021 installed; launch checkpoint
+- ys-game speedg on d88dac66 (0020): GTA IV 65.92 (before 66.03), DiRT 110.11 (before 116.8; DiRT run after a cooldown, ThermalStatus/heat not controlled — rerun with the fan at max). 0 FATAL, crash 0.
+- Fan rule (user): no cooldowns; perf-harness/fan-max.sh (root loop pwm1=255, AYANEO rewrites it) before test blocks, fan-restore.sh after. Fan loop RUNNING now.
+- 0021 CI 43041661192 green; yserver ff704741 staged /sdcard/Download/yserver-android-0021-95cd7778 and installed.
+- Launch checkpoint: speed4 = AIO vk ys 30 s YSERVER_TICK_TIMING=1 YSERVER_LOOP_TELEMETRY=1.
+
 ## 2026-11-11 09:5x — 0020 A/B RESULT + 0021 debug timing; game launch checkpoint
 - AIO vk ys 30 s on d88dac66: speed2 (0020 on) avg 2187.73 / 1% 581.45, longest request op145 0.14-0.27 ms, iter_wall_max ~3.8 ms; speed3 (same binary, YSERVER_PUTIMAGE_CLIP_CPU=1 YSERVER_COPY_WAIT_US=4000) 2118.01 / 328.84, op72 4.1-4.5 ms, iter_wall_max ~10 ms; speed0 (old 4e229a33) 2070.99 / 304.03. X11 ref 2164.97 / 827.94.
 - Remaining ~3.8 ms iteration stall is outside requests → 0021 (95cd777): YSERVER_TICK_TIMING=1 per-step timing; CI 43041661192.
