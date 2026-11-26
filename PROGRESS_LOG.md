@@ -15,6 +15,25 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-26 18:4x — r2: rebuild on upstream 8247002b (feat/r2-upstream, CI running)
+- User: "rebuild it on the latest upstream, if they are worth adding and will not cause issues, regression or
+  compatibility problems". Upstream joske/yserver 031ec58d -> 8247002b = 23 commits (11-11..11-25): access control
+  layer (inactive: no policy installed by default, every check returns Allow), Xorg-parity pointer routing / implicit
+  and passive grabs / XTest device motion / per-device freeze (#373 #374 #379), Present: future-target Async presents
+  flip synced (#377, only FIFO_RELAXED/adaptive vsync; MAILBOX/IMMEDIATE send target 0, unchanged) + KMS direct scanout
+  waits for a pending flip (#380, card path), GLX single-buffered visual (#376, no GLX on Android), RANDR user modes,
+  AMD tiled DRI3 imports, shaped windows in redirect backings (#384), libz-sys 1.1.33 (RUSTSEC-2026-0544), Rust 1.100
+  lint/cargo cleanup (works on 1.99.1). PR #349 still OPEN at 6f3c46ff.
+- PR #349 merge on 8247002b: 1 conflict (core_loop/process_request/selection.rs) -> upstream routing
+  (answer_selection_failure, access checks) + PR #349's timestamped note_refusal/note_selection_notify. Saved as
+  patches/0000-pr349-merged-on-upstream.patch; workflow applies it instead of merging at build time.
+- 0008 Cargo.toml hunk re-made (upstream added drm-ffi/roxmltree/serde_json to the KMS block). 0001-0007, 0009-0029
+  apply unchanged. Fresh 8247002b + patches tree == local tree (9ac3a196).
+- Commit b5ce4907, CI 45912513511 (headSha checked). Local tree /root/src/yserver-r2 (branch r2).
+- Test plan: stage r2 as BL files/yserver/yserver (staged binary wins over bundled libyserver.so), A/B vs r1 (bundled)
+  with bench.sh ENVV=BANNER_YSERVER=1: AIO cube vk/dx11 + DiRT benchmark, yserver logs, FATAL/crash; then a hands-on
+  input/typing check by the user. Undo = delete files/yserver/yserver.
+
 ## 2026-11-11 14:0x — repo public, README rewritten, main fast-forwarded (user: "merge it")
 - Repo made public 13:4x (history scanned: no secrets; author email = the one on Bannerlator's public commits). LICENSE (MIT) + LICENSE-yserver; README rewritten (credits, Bannerlator integration, releases, build steps, every patch, settings, measurements, limits).
 - Release r1-pre1 (prerelease) → 774463860e11 (patches 0001-0029), yserver sha256 cdb1aac0….
