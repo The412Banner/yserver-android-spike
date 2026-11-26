@@ -65,11 +65,9 @@ jobs:
           git -C yserver fetch -q --depth 1 https://github.com/joske/yserver.git "$SHA"
           git -C yserver checkout -q FETCH_HEAD
           test "$(git -C yserver rev-parse HEAD)" = "$SHA"
-          # Upstream PR #349 (SetZero): the rootless Wayland host, pinned.
-          PR=$(cat PR349_COMMIT)
-          git -C yserver fetch -q --depth 200 https://github.com/ferrix-os/yserver.git "$PR"
-          git -C yserver fetch -q --deepen 200 https://github.com/joske/yserver.git "$SHA"
-          git -C yserver -c user.name=ci -c user.email=ci@localhost merge -q --no-edit "$PR"
+          # Upstream PR #349 (SetZero, commit in PR349_COMMIT): the rootless Wayland host. It no longer
+          # merges cleanly on this yserver commit (one conflict in core_loop/process_request/selection.rs),
+          # so the merged and resolved result is patches/0000-pr349-merged-on-upstream.patch.
           for p in patches/*.patch; do git -C yserver apply --verbose "../$p"; done
 
       - name: libxkbcommon (static, Android)

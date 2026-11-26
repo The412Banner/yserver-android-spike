@@ -1,16 +1,17 @@
 diff --git a/crates/yserver/Cargo.toml b/crates/yserver/Cargo.toml
-index 171830c..dd7765b 100644
+index 57947858..ca403c4f 100644
 --- a/crates/yserver/Cargo.toml
 +++ b/crates/yserver/Cargo.toml
-@@ -52,13 +52,15 @@ fontconfig = "0.11"
+@@ -49,7 +49,7 @@ fontconfig = "0.11"
  freetype-sys = { version = "0.23", features = ["bundled"] }
  
  # The DRM/KMS platform; build.rs emits `cfg(kms)` for the same targets.
 -[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
 +[target.'cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
  drm.workspace = true
+ drm-ffi.workspace = true
  gbm.workspace = true
- input.workspace = true
+@@ -60,6 +60,8 @@ serde_json.workspace = true
  
  [target.'cfg(target_os = "linux")'.dependencies]
  udev.workspace = true
@@ -20,7 +21,7 @@ index 171830c..dd7765b 100644
  # wayland-client on its own Rust implementation of the wire (not the
  # `system` libwayland one), and the protocols beyond the core it speaks.
 diff --git a/crates/yserver/build.rs b/crates/yserver/build.rs
-index f3a16f0..c9fc65d 100644
+index f3a16f0f..c9fc65d4 100644
 --- a/crates/yserver/build.rs
 +++ b/crates/yserver/build.rs
 @@ -16,12 +16,12 @@ fn main() {
@@ -49,7 +50,7 @@ index f3a16f0..c9fc65d 100644
      // The `xkbcommon` crate links `-lxkbcommon` without a search path, and
      // neither Homebrew's lib dir (macOS) nor vcpkg's (Windows) is on the
 diff --git a/crates/yserver/src/drm/page_flip.rs b/crates/yserver/src/drm/page_flip.rs
-index 712a331..5e82707 100644
+index 712a3310..5e827075 100644
 --- a/crates/yserver/src/drm/page_flip.rs
 +++ b/crates/yserver/src/drm/page_flip.rs
 @@ -25,9 +25,9 @@ use crate::drm::{
@@ -65,7 +66,7 @@ index 712a331..5e82707 100644
  
  // ── DRM_IOCTL_CRTC_QUEUE_SEQUENCE plumbing ──────────────────────
 diff --git a/crates/yserver/src/kms/console.rs b/crates/yserver/src/kms/console.rs
-index 06daadc..7827f7e 100644
+index 06daadcf..7827f7e3 100644
 --- a/crates/yserver/src/kms/console.rs
 +++ b/crates/yserver/src/kms/console.rs
 @@ -33,7 +33,7 @@ use nix::sys::termios::{
@@ -78,7 +79,7 @@ index 06daadc..7827f7e 100644
  mod os;
  #[cfg(target_os = "openbsd")]
 diff --git a/crates/yserver/src/kms/console/linux.rs b/crates/yserver/src/kms/console/linux.rs
-index 196ac1d..69319ea 100644
+index 196ac1d2..69319ea3 100644
 --- a/crates/yserver/src/kms/console/linux.rs
 +++ b/crates/yserver/src/kms/console/linux.rs
 @@ -5,7 +5,10 @@ use std::io;
@@ -93,10 +94,10 @@ index 196ac1d..69319ea 100644
  pub(super) const VT_ACTIVATE: IoctlReq = 0x5606;
  pub(super) const VT_SETMODE: IoctlReq = 0x5602;
 diff --git a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
-index cc773de..239f7c5 100644
+index 4d45d845..03ca4c35 100644
 --- a/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
 +++ b/crates/yserver/src/kms/render/backend/kms/platform_hooks.rs
-@@ -799,6 +799,10 @@ impl Platform for PlatformBackend {
+@@ -804,6 +804,10 @@ impl Platform for PlatformBackend {
      }
  
      fn dri3_capabilities(b: &KmsBackend) -> Dri3Caps {
@@ -107,7 +108,7 @@ index cc773de..239f7c5 100644
          KmsBackend::backend_export_dri3_capabilities(b)
      }
  
-@@ -813,6 +817,9 @@ impl Platform for PlatformBackend {
+@@ -818,6 +822,9 @@ impl Platform for PlatformBackend {
          depth: u8,
          bpp: u8,
      ) -> io::Result<PixmapHandle> {
@@ -117,7 +118,7 @@ index cc773de..239f7c5 100644
          KmsBackend::backend_export_dri3_import_pixmap(
              b, fd, width, height, stride, offset, modifier, depth, bpp,
          )
-@@ -824,6 +831,12 @@ impl Platform for PlatformBackend {
+@@ -829,6 +836,12 @@ impl Platform for PlatformBackend {
          depth: u8,
          bpp: u8,
      ) -> (Vec<u64>, Vec<u64>) {
@@ -131,7 +132,7 @@ index cc773de..239f7c5 100644
      }
  
 diff --git a/crates/yserver/src/kms/render/imported_syncobj.rs b/crates/yserver/src/kms/render/imported_syncobj.rs
-index 6dab974..9570b3c 100644
+index 6dab9747..9570b3c1 100644
 --- a/crates/yserver/src/kms/render/imported_syncobj.rs
 +++ b/crates/yserver/src/kms/render/imported_syncobj.rs
 @@ -33,7 +33,7 @@ pub(crate) trait PresentSyncobj: yserver_core::backend::SyncobjHandle {
@@ -144,10 +145,10 @@ index 6dab974..9570b3c 100644
  #[cfg(any(
      all(target_os = "linux", not(target_env = "musl")),
 diff --git a/crates/yserver/src/lib.rs b/crates/yserver/src/lib.rs
-index 7534cee..4b7fa50 100644
+index c28e2adf..3e0c3c8c 100644
 --- a/crates/yserver/src/lib.rs
 +++ b/crates/yserver/src/lib.rs
-@@ -913,14 +913,16 @@ pub fn run(opts: launch::LaunchOptions) -> io::Result<()> {
+@@ -918,14 +918,16 @@ pub fn run(opts: launch::LaunchOptions) -> io::Result<()> {
          log::info!("yserver: rootless, on the Wayland compositor");
      }
  
