@@ -15,6 +15,17 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-26 18:5x — r2 CI GREEN, probes pass; launch checkpoint (device A/B)
+- CI 45912513511 GREEN (headSha b5ce4907; same 4 dead-code warnings as r1 CI 43064600562). Package
+  /sdcard/Download/yserver-android-spike-b5ce4907.tar.gz (sha256 c8335609, host == device).
+- Termux-sandbox probes, alternating r1 (release binary cdb1aac0 in the same probe package) / r2, 2 each: xprobe 15/15,
+  ahbprobe 10/10, 0 panic/error both. Round trip r1 58.3/64.6 us vs r2 63.0/66.1; PutImage 516/531 vs 480/502 MB/s;
+  present loop 322/335 vs 320/317 per s -> same within spread.
+- RUNNING: /sdcard/Download/perf-harness/ys-r2-ab.sh (root, background): fan max, 2 rounds of bench.sh r1 then r2,
+  container 1, AIO cube vk + dx11 15 s + DiRT benchmark, BANNER_YSERVER=1; results results/ysab-r{1,2}-{1,2}/ +
+  results/ys-r2-ab.log; yserver logs copied per round. Its EXIT trap removes files/yserver/yserver and restores the fan.
+  If the session dies: check the log, rm /data/data/com.tencent.ig/files/yserver/yserver, fan-restore.sh.
+
 ## 2026-11-26 18:4x — r2: rebuild on upstream 8247002b (feat/r2-upstream, CI running)
 - User: "rebuild it on the latest upstream, if they are worth adding and will not cause issues, regression or
   compatibility problems". Upstream joske/yserver 031ec58d -> 8247002b = 23 commits (11-11..11-25): access control
