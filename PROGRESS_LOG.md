@@ -15,6 +15,13 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-26 19:2x — r2 STAGED on the FIT for the user's hands-on input test (user: "put it on the fit, I'll test it")
+- /data/data/com.tencent.ig/files/yserver/yserver = r2 (sha256 871b63dc, u0_a193, c193 label, 700); staged binary wins
+  over the bundled r1 for every launch with BANNER_YSERVER=1 (today: DiRT Showdown + Windows Steam Client x64 shortcuts
+  in container 1). Test: touch/mouse clicks + drag + scroll, keyboard typing, copy-paste both ways.
+- RESUME: after the user's run read files/yserver/logs/yserver-<newest>.log (version 8247002b, WARN/ERROR/panic),
+  logcat FATAL + crash buffer, ask the user what worked. Undo = rm that file (back to bundled r1).
+
 ## 2026-11-26 19:0x — r2 DEVICE A/B PASSED (no regression found), r2 not published
 - ys-r2-ab.sh 18:49-19:01 EST (first start hung on `fan-max.sh | tee` = the fan loop kept the pipe; fixed to a file
   redirect, restarted). Container 1 (Proton 11.0-12.8), BANNER_YSERVER=1, limiter off, fan max, ABAB. Battery 22 % on
