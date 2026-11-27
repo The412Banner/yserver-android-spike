@@ -15,6 +15,23 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-26 19:0x — r2 DEVICE A/B PASSED (no regression found), r2 not published
+- ys-r2-ab.sh 18:49-19:01 EST (first start hung on `fan-max.sh | tee` = the fan loop kept the pipe; fixed to a file
+  redirect, restarted). Container 1 (Proton 11.0-12.8), BANNER_YSERVER=1, limiter off, fan max, ABAB. Battery 22 % on
+  battery at start, charger plugged in during round 2 (both builds of round 2 on charge).
+  | run | AIO vk avg / 1 % low | AIO dx11 avg / 1 % low | DiRT avg / min |
+  | r1 round 1 | 1989.1 / 476.4 | 2666.8 / 450.2 | 98.83 / 65.88 |
+  | r2 round 1 | 1979.1 / 448.8 | 2698.9 / 474.2 | 97.84 / 69.92 |
+  | r1 round 2 | 1986.2 / 400.8 | 2697.5 / 476.4 | 93.92 / 63.45 |
+  | r2 round 2 | 1962.5 / 424.8 | 2652.1 / 450.7 | 94.87 / 68.69 |
+  Means r1 / r2: vk 1987.7 / 1970.8 (-0.9 %), dx11 2682.1 / 2675.5 (-0.2 %), DiRT 96.37 / 96.35, DiRT min 64.7 / 69.3.
+  = same within spread. Pictures checked (vk cube, D3D11 cube, DiRT race). 12 sessions: fatal 0, crash buffer 0, yserver
+  logs 0 ERROR / 0 panic, only the 2 known Vulkan extension WARNs; r2 logs say 8247002b. Only log difference: r2 logs
+  "client_io: ... the peer is gone (Broken pipe)" (INFO) when the harness force-stops DiRT.
+- Not tested on r2: mouse/touch/keyboard (upstream's biggest change: grabs/implicit grabs/XTest), clipboard (merge
+  conflict area), typing. Results: perf-harness/results/ysab-*, ys-r2-ab.log.
+- Next (user word): hands-on input check with r2 staged; then release r2-pre1 + BL ci/yserver.json bump branch.
+
 ## 2026-11-26 18:5x — r2 CI GREEN, probes pass; launch checkpoint (device A/B)
 - CI 45912513511 GREEN (headSha b5ce4907; same 4 dead-code warnings as r1 CI 43064600562). Package
   /sdcard/Download/yserver-android-spike-b5ce4907.tar.gz (sha256 c8335609, host == device).
