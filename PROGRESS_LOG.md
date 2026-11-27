@@ -15,6 +15,16 @@ Times are EST (America/New_York).
 - Running a test "as Termux" through root keeps root's SELinux domain (u:r:magisk:s0); add
   `runcon u:r:untrusted_app_27:s0:c183,c256,c512,c768` after `su 10183` to get Termux's real sandbox.
 
+## 2026-11-26 19:4x — user's hands-on r2 test: Windows Steam Client x64 only (19:28-19:41 EST)
+- yserver log yserver-20261126-192836.log: version 8247002b, 0 ERROR / 0 panic, only the 2 known Vulkan WARNs. Steam
+  updated itself (new steam.exe 19:36:52), UI (steamwebhelper) mapped 19:37:06-11. Android -> Steam paste WORKED:
+  "gave an X client 17 bytes of the compositor's CLIPBOARD" 19:40:58 (BL log: "yserver pastes", 17 bytes). Steam -> Android
+  copy: no "X's CLIPBOARD ... is the compositor's" line = not tried or did not work (asked the user).
+- DPMS 0 -> 3 at 19:38:36 (= 600 s after start, Xorg default timeouts) and 3 -> 0 at 19:40:26 (first input): notify only,
+  no screen saver window (no client set attributes), KMS no-op with 0 outputs; same code in r1 (upstream changed only
+  access checks there). Harmless; shows host input resets the idle timer.
+- Clean exit: EXIT_SELF code 0 19:41:06, crash buffer empty. DiRT not run on r2. r2 still staged.
+
 ## 2026-11-26 19:2x — r2 STAGED on the FIT for the user's hands-on input test (user: "put it on the fit, I'll test it")
 - /data/data/com.tencent.ig/files/yserver/yserver = r2 (sha256 871b63dc, u0_a193, c193 label, 700); staged binary wins
   over the bundled r1 for every launch with BANNER_YSERVER=1 (today: DiRT Showdown + Windows Steam Client x64 shortcuts
