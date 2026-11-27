@@ -5,9 +5,10 @@ in Rust by **Jos Dehaes**, made for [Bannerlator](https://github.com/The412Banne
 Bannerlator, yserver can take the place of the built-in Java X server for a game: Wine keeps using its
 X11 driver (winex11), and yserver shows Wine's windows through Bannerlator's own Wayland compositor.
 
-This repository holds **no yserver source**. Each build downloads yserver at a pinned commit, merges
-**SetZero**'s rootless Wayland host ([joske/yserver#349](https://github.com/joske/yserver/pull/349)) at a
-pinned commit, and applies the Android patches kept in [`patches/`](patches).
+This repository holds **no yserver source**. Each build downloads yserver at a pinned commit and applies
+the patches kept in [`patches/`](patches): first **SetZero**'s rootless Wayland host
+([joske/yserver#349](https://github.com/joske/yserver/pull/349), still an open pull request), merged at a
+pinned commit, then the Android patches.
 
 ## Credits and licence
 
@@ -77,6 +78,7 @@ still get Wayland mode's display features. Everything else is as fast on the bui
 
 | Release | Built from | Contents |
 |---|---|---|
+| [`r2-pre1`](https://github.com/The412Banner/yserver-android-spike/releases/tag/r2-pre1) (prerelease) | commit `b5ce4907` (patches 0000–0029), CI run 45912513511; yserver `8247002b`, PR #349 `6f3c46ff` | `yserver` (11,936,768 bytes, SHA-256 `871b63dca3941be172bb0d31a9b75b9ca69943fcd221bb326cd1ed333d7ffb87`), the full package, `SHA256SUMS`, both licences |
 | [`r1-pre1`](https://github.com/The412Banner/yserver-android-spike/releases/tag/r1-pre1) (prerelease) | commit `77446386` (patches 0001–0029), CI run 43064600562; yserver `031ec58d`, PR #349 `6f3c46ff` | `yserver` (11,761,400 bytes, SHA-256 `cdb1aac0f1dd4b272c7e8386231c2037782ab659f70167388cf45d6d75b97872`), the full package, `SHA256SUMS`, both licences |
 
 The full package (`yserver-android-<commit>.tar.gz`) holds the stripped `yserver`, the test programs
@@ -90,9 +92,10 @@ aarch64):
 
 1. **Tools** — `ninja`, `bison`, `xkb-data`, `glslc` from Ubuntu; when Ubuntu's mirror is unreachable,
    `glslc` comes from the NDK's `shader-tools` and `ninja` from PyPI. `meson` from PyPI.
-2. **yserver source + patches** — clone joske/yserver at [`YSERVER_COMMIT`](YSERVER_COMMIT), merge
-   SetZero's branch at [`PR349_COMMIT`](PR349_COMMIT), then `git apply` every file in `patches/` in
-   name order.
+2. **yserver source + patches** — clone joske/yserver at [`YSERVER_COMMIT`](YSERVER_COMMIT), then
+   `git apply` every file in `patches/` in name order. Patch 0000 is SetZero's branch at
+   [`PR349_COMMIT`](PR349_COMMIT) merged on that commit (up to `r1-pre1` the build merged the branch
+   itself; on `8247002b` it has one conflict, resolved in the patch).
 3. **libxkbcommon** — built as a static Android library ([`deps/build-xkbcommon.sh`](deps/build-xkbcommon.sh)).
 4. **Stub libraries** — empty `libgbm`, `libinput` and `libudev` with the needed symbols
    ([`deps/gen-stubs.sh`](deps/gen-stubs.sh), [`deps/stub-syms/`](deps/stub-syms)) so yserver links;
@@ -112,7 +115,7 @@ default branch.
 | Path | What |
 |---|---|
 | `patches/` | The Android changes to yserver, applied in name order (below) |
-| `parked/` | Patches kept out of the build (empty at `r1-pre1`) |
+| `parked/` | Patches kept out of the build (empty at `r2-pre1`) |
 | `deps/` | libxkbcommon build script, stub libraries, xshmfence |
 | `client/` | `xprobe` (fixed X11 protocol checks, PASS/FAIL lines, exit code 0 only when nothing failed), `ahbprobe` (AHardwareBuffer DRI3 import, copies and Present), `vkprobe` (Vulkan device and queue report); all use x11rb |
 | `scripts/run-test.sh` | Runs yserver headless with its frame recorder, then `xprobe` |
@@ -121,6 +124,12 @@ default branch.
 | `PROGRESS_LOG.md` | Every step, measurement and mistake, newest first |
 
 ## The patches
+
+**Upstream pull request**
+
+| Patch | Change |
+|---|---|
+| 0000 | SetZero's rootless Wayland host (PR #349 at `6f3c46ff`) merged on yserver `8247002b`. One conflict, in `core_loop/process_request/selection.rs`: upstream's routing of a conversion with no owner (`answer_selection_failure`, #371) and its access checks are kept, with PR #349's timestamped clipboard answers (`note_refusal` / `note_selection_notify` carry the event time) |
 
 **Android build**
 
@@ -193,6 +202,17 @@ server, "Wayland" is Wine's Wayland driver.
 The `r1-pre1` binary itself measured 2,057.7 fps average and 554 fps slowest 1 % in the cube, 65.9 in
 GTA IV and 110.2 in DiRT.
 
+`r2-pre1` against `r1-pre1`, same session, taking turns, two runs each (2026-11-26, Proton 11.0-12.8,
+frame limiter off, AIO cube 15 s):
+
+| Test | `r1-pre1` | `r2-pre1` |
+|---|---|---|
+| AIO Vulkan cube, average fps | 1,989 / 1,986 | 1,979 / 1,963 |
+| AIO D3D11 cube, average fps | 2,667 / 2,697 | 2,699 / 2,652 |
+| DiRT Showdown benchmark, average / minimum fps | 98.8 / 65.9, 93.9 / 63.5 | 97.8 / 69.9, 94.9 / 68.7 |
+
+Same within the spread between runs; pictures checked, no crashes, no errors in the yserver logs.
+
 - GPU load in the cube with newest frame only: 24–25 % (about 30 % without it); about 93 % of the
   cube's presents were replaced before a copy.
 - The Windows Steam client (Chromium pages drawn by one process into another's window) renders on
@@ -205,9 +225,12 @@ GTA IV and 110.2 in DiRT.
 
 - Tested on one device (Adreno 750, Adreno's proprietary Vulkan driver). Other GPUs: not tested.
 - OpenGL games through GLX are not supported on yserver (Bannerlator uses its EGL route there).
-- Not tested yet: typing on the keyboard, clipboard copy/paste end to end, changing the FPS limiter
-  during a game, HDR, frame generation.
-- PR #349 is an open pull request upstream; this build follows the commit in `PR349_COMMIT`.
+- Tested by hand on `r2-pre1` (Windows Steam client): touch, typing, and pasting Android's clipboard into
+  the game (seen in the log). Copying from the game to Android was reported fine but did not show in the
+  log of that run.
+- Not tested yet: changing the FPS limiter during a game on `r2-pre1`, HDR, frame generation.
+- PR #349 is an open pull request upstream; this build follows the commit in `PR349_COMMIT`, merged as
+  patch 0000.
 
 ## Building and testing it yourself
 
